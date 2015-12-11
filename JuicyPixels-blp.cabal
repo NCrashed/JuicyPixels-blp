@@ -21,4 +21,7 @@ library
   exposed-modules:     Codec.Picture.Blp
   default-language:    Haskell2010
   build-depends:       base >= 4.7 && < 5
+                     , bytestring >= 0.10.6
+                     , vector >= 0.10.12
                      , JuicyPixels >= 3.2.6.4
+                     , attoparsec >= 0.12.1.6

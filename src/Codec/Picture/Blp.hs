@@ -1,16 +1,17 @@
 module Codec.Picture.Blp(
-    parseBlp
-  , BlpStruct(..)
-  , BlpCompression(..)
+    decodeBlp
   ) where
 
+import Codec.Picture
 import Control.Monad
 import Data.Attoparsec.Binary
 import Data.Attoparsec.ByteString.Char8 as AT
 import Data.Bits
 import Data.ByteString (ByteString)
+import Data.Monoid
 import Data.Vector.Unboxed (Vector)
 import Data.Word 
+
 import qualified Data.ByteString as B 
 import qualified Data.Vector.Unboxed as V 
 import qualified Data.Attoparsec.Internal.Types as AT 
@@ -146,3 +147,12 @@ blpUncompressed2Parser mps = do
 
 parseBlp :: ByteString -> Either String BlpStruct
 parseBlp = parseOnly blpParser 
+
+decodeBlp :: ByteString -> Either String DynamicImage
+decodeBlp bs = do 
+  blp <- parseBlp bs 
+  case blpExt blp of
+    BlpJpeg {..} -> do 
+      when (null blpJpegData) $ fail "No jpeg data"
+      let jpeg = blpJpegHeader <> head blpJpegData
+      decodeJpeg jpeg

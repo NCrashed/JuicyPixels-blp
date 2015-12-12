@@ -38,3 +38,4 @@ executable blp2any
                      , JuicyPixels >= 3.2.6.4
                      , bytestring >= 0.10.6
                      , directory >= 1.2.2
+                     , filepath >= 1.4.0.0

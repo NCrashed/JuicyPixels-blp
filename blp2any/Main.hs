@@ -17,13 +17,16 @@ main = do
       else do 
         edx <- doesDirectoryExist path 
         if edx then do 
-          names <- getDirectoryContents path 
-          mapM_ testFile names 
+          names <- fmap (\p -> path ++ "/" ++ p) <$> getDirectoryContents path 
+          blps <- filterM doesFileExist names
+          mapM_ testFile blps 
         else fail "Given path is not exists!"
 
 testFile :: FilePath -> IO ()
 testFile inputFile = do 
   fc <- BS.readFile inputFile
   case parseBlp fc of 
-    Left err -> fail err 
-    Right blp -> print blp
+    Left err -> fail $
+      inputFile ++ ": " ++ err 
+    Right blp -> putStrLn $  
+      inputFile ++ ": " ++ show (blpCompression blp)

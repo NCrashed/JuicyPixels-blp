@@ -1,5 +1,7 @@
 module Codec.Picture.Blp(
     parseBlp
+  , BlpStruct(..)
+  , BlpCompression(..)
   ) where
 
 import Control.Monad
@@ -50,7 +52,7 @@ data BlpPictureType =
     UncompressedWithAlpha
   | UncompressedWithoutAlpha
   deriving (Eq, Ord, Enum, Bounded, Show)
-  
+
 blpParser :: Parser BlpStruct
 blpParser = do 
   guardBlpVersion

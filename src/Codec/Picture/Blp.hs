@@ -1,5 +1,5 @@
 module Codec.Picture.Blp(
-
+    parseBlp
   ) where
 
 import Control.Monad
@@ -21,7 +21,7 @@ data BlpStruct = BlpStruct {
 , blpPictureType :: !BlpPictureType  
 , blpPictureSubType :: !Word32 -- is not used
 , blpExt :: BlpExt 
-}
+} deriving Show
 
 data BlpExt = 
     BlpJpeg {
@@ -36,6 +36,7 @@ data BlpExt =
       blpU2Palette :: !(Vector Word32)
     , blpU2MipMaps :: ![ByteString]
     }
+  deriving Show 
 
 data BlpCompression =
     BlpCompressionJPEG
@@ -48,7 +49,8 @@ data BlpFlag = BlpFlagAlphaChannel
 data BlpPictureType = 
     UncompressedWithAlpha
   | UncompressedWithoutAlpha
-
+  deriving (Eq, Ord, Enum, Bounded, Show)
+  
 blpParser :: Parser BlpStruct
 blpParser = do 
   guardBlpVersion
@@ -139,3 +141,6 @@ blpUncompressed2Parser mps = do
     let halfSize = fromIntegral size `div` 2
     AT.take halfSize <?> "index list"
   return $ BlpUncompressed2 {..}
+
+parseBlp :: ByteString -> Either String BlpStruct
+parseBlp = parseOnly blpParser 

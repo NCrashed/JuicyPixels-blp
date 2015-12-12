@@ -26,5 +26,15 @@ library
                      , JuicyPixels >= 3.2.6.4
                      , attoparsec >= 0.12.1.6
                      , attoparsec-binary >= 0.2
-                     
+
   default-extensions:  RecordWildCards
+
+executable blp2any
+  hs-source-dirs:      blp2any
+  main-is:             Main.hs
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5
+                     , JuicyPixels-blp
+                     , JuicyPixels >= 3.2.6.4
+                     , bytestring >= 0.10.6
+                     , directory >= 1.2.2

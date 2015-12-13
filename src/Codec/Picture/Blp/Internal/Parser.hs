@@ -40,6 +40,7 @@ blpParser = do
   blpExt <- case blpCompression of 
     BlpCompressionJPEG -> blpJpegParser mipMapsInfo
     BlpCompressionUncompressed -> case blpPictureType of 
+      JPEGType -> fail "JPEG type with Uncompressed type mix"
       UncompressedWithAlpha -> blpUncompressed1Parser mipMapsInfo
       UncompressedWithoutAlpha -> blpUncompressed2Parser mipMapsInfo
 
@@ -59,7 +60,7 @@ compressionParser = (<?> "compression") $ do
   case i of 
     0 -> return BlpCompressionJPEG
     1 -> return BlpCompressionUncompressed
-    _ -> fail "Unknown compression"
+    _ -> fail $ "Unknown compression " ++ show i
 
 flagsParser :: Parser [BlpFlag]
 flagsParser = (<?> "flags") $ do 
@@ -72,10 +73,11 @@ pictureTypeParser :: Parser BlpPictureType
 pictureTypeParser = (<?> "picture type") $ do 
   i <- dword
   case i of 
+    2 -> return JPEGType
     3 -> return UncompressedWithAlpha
     4 -> return UncompressedWithAlpha
     5 -> return UncompressedWithoutAlpha
-    _ -> fail "Unknown picture type"
+    _ -> fail $ "Unknown picture type " ++ show i
 
 blpJpegParser :: [(Word32, Word32)] -> Parser BlpExt 
 blpJpegParser mps = (<?> "blp jpeg") $ do 

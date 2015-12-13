@@ -50,7 +50,8 @@ data BlpFlag = BlpFlagAlphaChannel
 instance Hashable BlpFlag 
 
 data BlpPictureType = 
-    UncompressedWithAlpha
+    JPEGType
+  | UncompressedWithAlpha
   | UncompressedWithoutAlpha
   deriving (Eq, Ord, Enum, Bounded, Show, Generic)
 

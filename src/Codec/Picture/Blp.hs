@@ -13,6 +13,7 @@ import Data.Word
 import qualified Data.ByteString as BS
 import qualified Data.Vector as V 
 
+import Codec.Picture.Blp.Internal.Convert
 import Codec.Picture.Blp.Internal.Data
 import Codec.Picture.Blp.Internal.Parser 
 
@@ -38,7 +39,8 @@ decodeBlpMipmaps bs = do
   case blpExt blp of
     BlpJpeg {..} -> do
       let jpegs = (blpJpegHeader <>) `fmap` blpJpegData
-      mapM decodeJpeg jpegs
+      mips <- mapM decodeJpeg jpegs
+      return $ toPngRepresentable <$> mips
 
     BlpUncompressed1 {..} -> do
       let mkImage mip = ImageRGBA8 $ generateImage (gen mip) (fromIntegral $ blpWidth blp) (fromIntegral $ blpHeight blp)

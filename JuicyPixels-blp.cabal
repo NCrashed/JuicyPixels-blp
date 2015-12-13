@@ -19,6 +19,7 @@ Source-Repository head
 library
   hs-source-dirs:      src
   exposed-modules:     Codec.Picture.Blp
+                       Codec.Picture.Blp.Internal.Convert
                        Codec.Picture.Blp.Internal.Data
                        Codec.Picture.Blp.Internal.Parser
 

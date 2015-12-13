@@ -1,9 +1,11 @@
 module Codec.Picture.Blp(
-    decodeBlp
+    readBlp
+  , readBlpMipmaps
+  , decodeBlp
+  , decodeBlpMipmaps
   ) where
 
 import Codec.Picture
-import Control.Monad
 import Data.ByteString (ByteString)
 import Data.Monoid
 import Data.Word 
@@ -14,39 +16,54 @@ import qualified Data.Vector as V
 import Codec.Picture.Blp.Internal.Data
 import Codec.Picture.Blp.Internal.Parser 
 
-decodeBlp :: ByteString -> Either String DynamicImage
+-- | Read BLP from given file without mipmaps
+readBlp :: FilePath -> IO (Either String DynamicImage)
+readBlp fp = decodeBlp `fmap` BS.readFile fp 
+
+-- | Read BLP from given file with mipmaps
+readBlpMipmaps :: FilePath -> IO (Either String [DynamicImage])
+readBlpMipmaps fp = decodeBlpMipmaps `fmap` BS.readFile fp 
+
+-- | Decodes BLP without mipmaps
+decodeBlp :: ByteString -> Either String DynamicImage 
 decodeBlp bs = do 
+  is <- decodeBlpMipmaps bs 
+  if null is then Left "No data in BLP"
+    else return $ head is
+
+-- | Decodes BLP and returns original image plus all mipmaps
+decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
+decodeBlpMipmaps bs = do 
   blp <- parseBlp bs 
   case blpExt blp of
-    BlpJpeg {..} -> do 
-      when (null blpJpegData) $ fail "No jpeg data"
-      let jpeg = blpJpegHeader <> head blpJpegData
-      decodeJpeg jpeg
+    BlpJpeg {..} -> do
+      let jpegs = (blpJpegHeader <>) `fmap` blpJpegData
+      mapM decodeJpeg jpegs
 
     BlpUncompressed1 {..} -> do
-      when (null blpU1MipMaps) $ fail "No uncompressed1 data"
-      return $ ImageRGBA8 $ generateImage gen (fromIntegral $ blpWidth blp) (fromIntegral $ blpHeight blp)
+      let mkImage mip = ImageRGBA8 $ generateImage (gen mip) (fromIntegral $ blpWidth blp) (fromIntegral $ blpHeight blp)
+      return $ mkImage `fmap` blpU1MipMaps
       where 
       palette :: Word8 -> PixelRGBA8
       palette i = blpU1Palette V.! fromIntegral i
 
       makeIndex x y = y*(fromIntegral $ blpWidth blp)+x
-      takeColor x y = palette $ fst (head blpU1MipMaps) `BS.index` makeIndex x y
-      takeAlpha x y = snd (head blpU1MipMaps) `BS.index` makeIndex x y
-      gen x y = let 
-        PixelRGBA8 r g b _ = takeColor x y 
-        a = takeAlpha x y 
+      takeColor mip x y = palette $ fst mip `BS.index` makeIndex x y
+      takeAlpha mip x y = snd mip `BS.index` makeIndex x y
+      gen mip x y = let 
+        PixelRGBA8 r g b _ = takeColor mip x y 
+        a = takeAlpha mip x y 
         in PixelRGBA8 b g r a
 
     BlpUncompressed2 {..} -> do
-      when (null blpU2MipMaps) $ fail "No uncompressed2 data"
-      return $ ImageRGBA8 $ generateImage gen (fromIntegral $ blpWidth blp) (fromIntegral $ blpHeight blp)
+      let mkImage mip = ImageRGBA8 $ generateImage (gen mip) (fromIntegral $ blpWidth blp) (fromIntegral $ blpHeight blp)
+      return $ mkImage `fmap` blpU2MipMaps
       where 
       palette :: Word8 -> PixelRGBA8
       palette i = blpU2Palette V.! fromIntegral i
 
       makeIndex x y = y*(fromIntegral $ blpWidth blp)+x
-      takeColor x y = palette $ head blpU2MipMaps `BS.index` makeIndex x y
-      gen x y = let 
-        PixelRGBA8 r g b a = takeColor x y
+      takeColor mip x y = palette $ mip `BS.index` makeIndex x y
+      gen mip x y = let 
+        PixelRGBA8 r g b a = takeColor mip x y
         in PixelRGBA8 b g r (255 - a)

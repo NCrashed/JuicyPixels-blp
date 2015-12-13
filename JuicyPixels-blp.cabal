@@ -33,7 +33,8 @@ library
 
   default-extensions:  RecordWildCards
                        DeriveGeneric
-
+                       OverloadedStrings
+                       
 executable blp2any
   hs-source-dirs:      blp2any
   main-is:             Main.hs

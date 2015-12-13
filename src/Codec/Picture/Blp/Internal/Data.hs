@@ -6,9 +6,10 @@ module Codec.Picture.Blp.Internal.Data(
   , BlpExt(..)
   ) where
 
+import Codec.Picture
 import Data.ByteString (ByteString)
 import Data.Hashable
-import Data.Vector.Unboxed (Vector)
+import Data.Vector (Vector)
 import Data.Word 
 import GHC.Generics 
 
@@ -28,11 +29,11 @@ data BlpExt =
     , blpJpegData :: ![ByteString]
     }
   | BlpUncompressed1 {
-      blpU1Palette :: !(Vector Word32)
+      blpU1Palette :: !(Vector PixelRGBA8)
     , blpU1MipMaps :: ![(ByteString, ByteString)]
     }
   | BlpUncompressed2 {
-      blpU2Palette :: !(Vector Word32)
+      blpU2Palette :: !(Vector PixelRGBA8)
     , blpU2MipMaps :: ![ByteString]
     }
   deriving (Show, Generic)

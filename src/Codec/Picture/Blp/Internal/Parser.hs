@@ -1,6 +1,6 @@
 module Codec.Picture.Blp.Internal.Parser(
     blpParser
-  , guardBlpVersion
+  , blpVersion
   , dword
   , compressionParser
   , flagsParser
@@ -13,21 +13,22 @@ module Codec.Picture.Blp.Internal.Parser(
   , parseBlp
   ) where
 
+import Codec.Picture
 import Control.Monad
 import Data.Attoparsec.Binary
-import Data.Attoparsec.ByteString.Char8 as AT
+import Data.Attoparsec.ByteString as AT
 import Data.Bits
 import Data.ByteString (ByteString)
 import Data.Word 
 
-import qualified Data.Vector.Unboxed as V 
+import qualified Data.Vector as V 
 import qualified Data.Attoparsec.Internal.Types as AT 
 
 import Codec.Picture.Blp.Internal.Data
 
 blpParser :: Parser BlpStruct
 blpParser = do 
-  guardBlpVersion
+  _ <- blpVersion
   blpCompression <- compressionParser
   blpFlags <- flagsParser
   blpWidth <- dword <?> "width"
@@ -46,13 +47,14 @@ blpParser = do
 
   return $ BlpStruct {..} 
 
-guardBlpVersion :: Parser ()
-guardBlpVersion = do 
-  ver <- replicateM 4 anyChar
-  unless (ver == "BLP1") $ fail "File is not in BLP1 format!"
+blpVersion :: Parser ByteString
+blpVersion = string "BLP1"
 
 dword :: Parser Word32
 dword = anyWord32le
+
+rgba8 :: Parser PixelRGBA8
+rgba8 = PixelRGBA8 <$> anyWord8 <*> anyWord8 <*> anyWord8 <*> anyWord8
 
 compressionParser :: Parser BlpCompression
 compressionParser = (<?> "compression") $ do 
@@ -100,7 +102,7 @@ skipToOffset i = do
 
 blpUncompressed1Parser :: [(Word32, Word32)] -> Parser BlpExt
 blpUncompressed1Parser mps = do 
-  blpU1Palette <- V.replicateM 256 dword
+  blpU1Palette <- V.replicateM 256 rgba8
   blpU1MipMaps <- forM mps $ \(offset, size) -> do 
     skipToOffset offset 
     let halfSize = fromIntegral size `div` 2
@@ -111,7 +113,7 @@ blpUncompressed1Parser mps = do
 
 blpUncompressed2Parser :: [(Word32, Word32)] -> Parser BlpExt
 blpUncompressed2Parser mps = do 
-  blpU2Palette <- V.replicateM 256 dword
+  blpU2Palette <- V.replicateM 256 rgba8
   blpU2MipMaps <- forM mps $ \(offset, size) -> do 
     skipToOffset offset 
     let halfSize = fromIntegral size `div` 2

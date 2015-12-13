@@ -115,9 +115,8 @@ blpUncompressed2Parser :: [(Word32, Word32)] -> Parser BlpExt
 blpUncompressed2Parser mps = do 
   blpU2Palette <- V.replicateM 256 rgba8
   blpU2MipMaps <- forM mps $ \(offset, size) -> do 
-    skipToOffset offset 
-    let halfSize = fromIntegral size `div` 2
-    AT.take halfSize <?> "index list"
+    skipToOffset offset
+    AT.take (fromIntegral size) <?> "index list"
   return $ BlpUncompressed2 {..}
 
 parseBlp :: ByteString -> Either String BlpStruct

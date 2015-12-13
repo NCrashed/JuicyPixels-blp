@@ -28,13 +28,12 @@ library
                      , vector >= 0.10.12
                      , JuicyPixels >= 3.2.6.4
                      , attoparsec >= 0.12.1.6
-                     , attoparsec-binary >= 0.2
                      , hashable >= 1.2.3
 
   default-extensions:  RecordWildCards
                        DeriveGeneric
                        OverloadedStrings
-                       
+
 executable blp2any
   hs-source-dirs:      blp2any
   main-is:             Main.hs

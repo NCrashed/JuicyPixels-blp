@@ -15,7 +15,6 @@ module Codec.Picture.Blp.Internal.Parser(
 
 import Codec.Picture
 import Control.Monad
-import Data.Attoparsec.Binary
 import Data.Attoparsec.ByteString as AT
 import Data.Bits
 import Data.ByteString (ByteString)
@@ -23,6 +22,7 @@ import Data.Word
 
 import qualified Data.Vector as V 
 import qualified Data.Attoparsec.Internal.Types as AT 
+import qualified Data.ByteString as BS 
 
 import Codec.Picture.Blp.Internal.Data
 
@@ -51,7 +51,11 @@ blpVersion :: Parser ByteString
 blpVersion = string "BLP1"
 
 dword :: Parser Word32
-dword = anyWord32le
+dword = do 
+  bs <- AT.take 4
+  return . pack . BS.reverse $ bs
+  where 
+  pack = BS.foldl' (\n h -> (n `shiftL` 8) .|. fromIntegral h) 0
 
 rgba8 :: Parser PixelRGBA8
 rgba8 = PixelRGBA8 <$> anyWord8 <*> anyWord8 <*> anyWord8 <*> anyWord8

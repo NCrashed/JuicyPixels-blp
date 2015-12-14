@@ -3,6 +3,12 @@ module Codec.Picture.Blp(
   , readBlpMipmaps
   , decodeBlp
   , decodeBlpMipmaps
+  , writeBlpJpeg
+  , writeBlpUncompressedWithAlpha
+  , writeBlpUncompressedWithoutAlpha
+  , encodeBlpJpeg
+  , encodeBlpUncompressedWithAlpha
+  , encodeBlpUncompressedWithoutAlpha
   ) where
 
 import Codec.Picture
@@ -69,3 +75,27 @@ decodeBlpMipmaps bs = do
       gen mip x y = let 
         PixelRGBA8 r g b a = takeColor mip x y
         in PixelRGBA8 b g r (255 - a)
+
+writeBlpJpeg :: FilePath -> Int -> DynamicImage -> IO (Either String ())
+writeBlpJpeg fp quality img = case encodeBlpJpeg quality img of 
+  Left er -> return $ Left er 
+  Right bs -> BS.writeFile fp bs >> return (Right ())
+
+writeBlpUncompressedWithAlpha :: FilePath -> DynamicImage -> IO (Either String ())
+writeBlpUncompressedWithAlpha fp img = case encodeBlpUncompressedWithAlpha img of 
+  Left er -> return $ Left er 
+  Right bs -> BS.writeFile fp bs >> return (Right ())
+
+writeBlpUncompressedWithoutAlpha :: FilePath -> DynamicImage -> IO (Either String ())
+writeBlpUncompressedWithoutAlpha fp img = case encodeBlpUncompressedWithoutAlpha img of 
+  Left er -> return $ Left er 
+  Right bs -> BS.writeFile fp bs >> return (Right ())
+
+encodeBlpJpeg :: Int -> DynamicImage -> Either String ByteString
+encodeBlpJpeg = error "encodeBlpJpeg unimplemented"
+
+encodeBlpUncompressedWithAlpha :: DynamicImage -> Either String ByteString
+encodeBlpUncompressedWithAlpha = error "encodeBlpUncompressed unimplemented"
+
+encodeBlpUncompressedWithoutAlpha :: DynamicImage -> Either String ByteString
+encodeBlpUncompressedWithoutAlpha = error "encodeBlpUncompressed unimplemented"

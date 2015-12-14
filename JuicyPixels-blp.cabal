@@ -39,6 +39,7 @@ executable blp2any
   hs-source-dirs:      blp2any
   main-is:             Main.hs
   other-modules:       Convert
+                       File
                        Statistics
 
   default-language:    Haskell2010

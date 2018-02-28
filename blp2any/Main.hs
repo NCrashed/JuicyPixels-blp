@@ -1,5 +1,6 @@
 module Main where
 
+import Data.Monoid
 import Options.Applicative.Simple
 
 import Statistics
@@ -9,23 +10,23 @@ import Convert
 readMPure :: String -- ^ Name of argument for pretty error message
   -> (String -> Maybe a) -- ^ Function that parses the argument
   -> ReadM a -- ^ Optparse parser monad
-readMPure desc f = do 
+readMPure desc f = do
   s <- str
-  case f s of 
-    Nothing -> fail $ "Unknown " ++ desc ++ " " ++ s 
-    Just v -> return v 
+  case f s of
+    Nothing -> fail $ "Unknown " ++ desc ++ " " ++ s
+    Just v -> return v
 
 -- | How to parse ConvertFormat
 convertFormatR :: ReadM ConvertFormat
-convertFormatR = readMPure "format" readConvertFormat 
+convertFormatR = readMPure "format" readConvertFormat
 
 -- | How to parse BlpFormat
-blpFormatR :: ReadM BlpFormat 
+blpFormatR :: ReadM BlpFormat
 blpFormatR = readMPure "blp format" readBlpFormat
 
 main :: IO ()
-main = do 
-  (_,runCmd) <- simpleOptions ver headerDesc desc (pure ()) $ do 
+main = do
+  (_,runCmd) <- simpleOptions ver headerDesc desc (pure ()) $ do
     addCommand "convert" "Converts given blp or folder with blps to PNG" convertFiles $ (<*>) helper $ ConvertOptions
       <$> strArgument (metavar "INPUT_PATH" <> help "input file or directory (batch mode)")
       <*> strArgument (metavar "OUTPUT_PATH" <> help "output file name or directory (need explicit format option)")
@@ -38,7 +39,7 @@ main = do
       <$> strArgument (metavar "DIRECTORY" <> help "Input folder that stores blps (subfolders are processed)")
       <*> strArgument (metavar "OUTPUT_PATH" <> help "Here blp samples would be stored")
   runCmd
-  where 
+  where
     ver = "0.1.0.0"
     headerDesc = ""
     desc = "Converting BLP1 Warcraft III format to/from PNG, JPEG, TGA, TIFF, BMP, GIF"

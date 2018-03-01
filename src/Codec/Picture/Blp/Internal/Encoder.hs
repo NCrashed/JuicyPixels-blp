@@ -9,6 +9,7 @@ module Codec.Picture.Blp.Internal.Encoder(
 
 import Codec.Picture
 import Codec.Picture.ColorQuant
+import Codec.Picture.Jpg
 import Codec.Picture.ScaleDCT
 import Codec.Picture.Types
 import Data.Binary.Put
@@ -27,6 +28,7 @@ import qualified Data.Foldable as F
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 
+import Codec.Picture.Blp.Internal.Convert
 import Codec.Picture.Blp.Internal.Data
 
 -- | Convert spare BLP structure into compact stream of bytes
@@ -101,12 +103,21 @@ blpEncoder BlpStruct{..} = do
          traverse_ putRgba8 . ensureLengthV 256 (PixelRGBA8 0 0 0 0) $ blpU2Palette
          traverse_ putByteString blpU2MipMaps
 
+-- | Return 'True' if given picture format has alpha channel
+hasAlpha :: DynamicImage -> Bool
+hasAlpha img = case img of
+  ImageYA8 _ -> True
+  ImageYA16 _ -> True
+  ImageRGBA8 _ -> True
+  ImageRGBA16 _ -> True
+  _ -> False
+
 -- | Convert to BLP structure some image with given BLP options and quality (for JPEG compression)
 toBlpStruct :: BlpCompression -> BlpPictureType -> Int -> DynamicImage -> BlpStruct
 toBlpStruct compression pictype quality img = BlpStruct {
     blpCompression = compression
   , blpFlags = case pictype of
-     JPEGType -> []
+     JPEGType -> if hasAlpha img then [BlpFlagAlphaChannel] else []
      UncompressedWithAlpha -> [BlpFlagAlphaChannel]
      UncompressedWithoutAlpha -> []
   , blpWidth = fromIntegral $ dynamicMap imageWidth img
@@ -154,17 +165,11 @@ toBlpJpg quality img = BlpJpeg {
   , blpJpegData = mipmapsRawWithoutHeader
   }
   where
-    rgba2rgb :: Image PixelRGBA8 -> Image PixelRGB8
-    rgba2rgb = pixelMap dropTransparency
-
-    rgb2jpeg :: Image PixelRGB8 -> Image PixelYCbCr8
-    rgb2jpeg = convertImage
-
-    mipmaps :: [Image PixelYCbCr8]
-    mipmaps = rgb2jpeg . rgba2rgb <$> createMipMaps img
+    mipmaps :: [Image PixelCMYK8]
+    mipmaps = toBlpCMYK8 <$> createMipMaps img
 
     mipmapsRaw :: [BS.ByteString]
-    mipmapsRaw = toStrict . encodeJpegAtQuality quality <$> mipmaps
+    mipmapsRaw = toStrict . encodeDirectJpegAtQualityWithMetadata quality mempty <$> mipmaps
 
     header :: BS.ByteString
     header = scanHeader mipmapsRaw
@@ -203,7 +208,7 @@ instance Storable PixelRGBA8 where
 
 -- | Convert palette to format that we need for BLP
 convertPalette :: Palette -> V.Vector PixelRGBA8
-convertPalette = V.convert . VS.unsafeCast . imageData . pixelMap (promotePixel :: PixelRGB8 -> PixelRGBA8)
+convertPalette = V.convert . VS.unsafeCast . imageData . pixelMap ((\(PixelRGBA8 r g b a) -> PixelRGBA8 b g r a) . promotePixel :: PixelRGB8 -> PixelRGBA8)
 
 -- | Convert indexed image to raw bytestring
 convertIndexed :: Image Pixel8 -> BS.ByteString

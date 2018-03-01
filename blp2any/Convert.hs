@@ -31,9 +31,9 @@ readBlpFormat s = case toLower <$> s of
   "jpeg" -> Just BlpJpeg
   "jpg" -> Just BlpJpeg
   "uncompressed1" -> Just BlpUncompressedWithAlpha
-  "uncompressedWithAlpha" -> Just BlpUncompressedWithAlpha
+  "uncompressedwithalpha" -> Just BlpUncompressedWithAlpha
   "uncompressed2" -> Just BlpUncompressedWithoutAlpha
-  "uncompressedWithoutAlpha" -> Just BlpUncompressedWithoutAlpha
+  "uncompressedwithoutalpha" -> Just BlpUncompressedWithoutAlpha
   _ -> Nothing
 
 data ConvertFormat =

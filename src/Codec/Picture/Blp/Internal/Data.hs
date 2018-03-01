@@ -10,20 +10,20 @@ import Codec.Picture
 import Data.ByteString (ByteString)
 import Data.Hashable
 import Data.Vector (Vector)
-import Data.Word 
-import GHC.Generics 
+import Data.Word
+import GHC.Generics
 
 data BlpStruct = BlpStruct {
-  blpCompression :: !BlpCompression 
+  blpCompression :: !BlpCompression
 , blpFlags :: ![BlpFlag]
-, blpWidth :: !Word32 
+, blpWidth :: !Word32
 , blpHeight :: !Word32
-, blpPictureType :: !BlpPictureType  
+, blpPictureType :: !BlpPictureType
 , blpPictureSubType :: !Word32 -- is not used
-, blpExt :: BlpExt 
+, blpExt :: BlpExt
 } deriving (Show, Generic)
 
-data BlpExt = 
+data BlpExt =
     BlpJpeg {
       blpJpegHeader :: !ByteString
     , blpJpegData :: ![ByteString]
@@ -48,9 +48,9 @@ instance Hashable BlpCompression
 data BlpFlag = BlpFlagAlphaChannel
   deriving (Eq, Ord, Enum, Bounded, Show, Generic)
 
-instance Hashable BlpFlag 
+instance Hashable BlpFlag
 
-data BlpPictureType = 
+data BlpPictureType =
     JPEGType
   | UncompressedWithAlpha
   | UncompressedWithoutAlpha

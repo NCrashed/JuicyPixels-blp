@@ -26,7 +26,6 @@ import qualified Data.Attoparsec.Internal.Types as AT
 import qualified Data.ByteString as BS
 
 import Codec.Picture.Blp.Internal.Data
-import Debug.Trace
 
 blpParser :: Parser BlpStruct
 blpParser = do
@@ -50,7 +49,7 @@ blpParser = do
   return $ BlpStruct {..}
 
 blpVersion :: Parser ByteString
-blpVersion = string "BLP1"
+blpVersion = string "BLP1" <?> "BLP1 version tag"
 
 dword :: Parser Word32
 dword = do
@@ -92,7 +91,6 @@ blpJpegParser mps = (<?> "blp jpeg") $ do
   headerSize <- dword <?> "jpeg header size"
   blpJpegHeader <- AT.take (fromIntegral headerSize) <?> "jpeg header"
   blpJpegData <- forM mps $ \(offset, size) -> do
-    traceShowM (offset, size)
     skipToOffset offset
     AT.take $ fromIntegral size
   return $ BlpJpeg {..}

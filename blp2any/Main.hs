@@ -30,7 +30,8 @@ main = do
     addCommand "convert" "Converts given blp or folder with blps to PNG" convertFiles $ (<*>) helper $ ConvertOptions
       <$> strArgument (metavar "INPUT_PATH" <> help "input file or directory (batch mode)")
       <*> strArgument (metavar "OUTPUT_PATH" <> help "output file name or directory (need explicit format option)")
-      <*> option convertFormatR (long "format" <> short 'f' <> value UnspecifiedFormat <> help "Output file format, if not specified tries to infer from output file name. Values: blp png jpg tiff gif bmp")
+      <*> option convertFormatR (long "input-format" <> short 'i' <> value UnspecifiedFormat <> help "Input file format, if not specified tries to infer from input file name. Values: blp png jpg tiff gif bmp.")
+      <*> option convertFormatR (long "format" <> short 'f' <> value UnspecifiedFormat <> help "Output file format, if not specified tries to infer from output file name. Values: blp png jpg tiff gif bmp.")
       <*> option auto (long "quality" <> short 'q' <> value 90 <> help "Quality level for formats with lossy compression (default 90)")
       <*> fmap not (switch (long "notPreserveStructure" <> short 'p' <> help "Will not produce subfolders while batch converting" ))
       <*> switch (long "shallow" <> short 's' <> help "Not look into subfolders while batch converting")

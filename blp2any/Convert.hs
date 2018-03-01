@@ -9,25 +9,26 @@ module Convert(
 
 import Codec.Picture
 import Codec.Picture.Blp
-import Control.Monad 
+import Control.Monad
 import Data.Char
 import Data.Maybe
-import System.Directory 
+import Data.Monoid
+import System.Directory
 import System.FilePath
 
 import qualified Data.ByteString as BS
 
-import File 
+import File
 
-data BlpFormat = 
+data BlpFormat =
     BlpJpeg
   | BlpUncompressedWithAlpha
   | BlpUncompressedWithoutAlpha
   deriving (Eq, Ord, Show, Enum, Bounded)
 
-readBlpFormat :: String -> Maybe BlpFormat 
-readBlpFormat s = case toLower <$> s of 
-  "jpeg" -> Just BlpJpeg 
+readBlpFormat :: String -> Maybe BlpFormat
+readBlpFormat s = case toLower <$> s of
+  "jpeg" -> Just BlpJpeg
   "jpg" -> Just BlpJpeg
   "uncompressed1" -> Just BlpUncompressedWithAlpha
   "uncompressedWithAlpha" -> Just BlpUncompressedWithAlpha
@@ -35,37 +36,37 @@ readBlpFormat s = case toLower <$> s of
   "uncompressedWithoutAlpha" -> Just BlpUncompressedWithoutAlpha
   _ -> Nothing
 
-data ConvertFormat = 
-    Blp 
-  | Png 
+data ConvertFormat =
+    Blp
+  | Png
   | Jpeg
-  | Tiff 
+  | Tiff
   | Gif
   | Bmp
   | UnspecifiedFormat
   deriving (Eq, Ord, Show, Enum, Bounded)
 
-readConvertFormat :: String -> Maybe ConvertFormat 
-readConvertFormat s = case toLower <$> s of 
+readConvertFormat :: String -> Maybe ConvertFormat
+readConvertFormat s = case toLower <$> s of
   "blp" -> Just Blp
-  "png" -> Just Png 
-  "jpeg" -> Just Jpeg 
-  "jpg" -> Just Jpeg 
-  "jpe" -> Just Jpeg 
-  "jif" -> Just Jpeg 
-  "jfif" -> Just Jpeg 
+  "png" -> Just Png
+  "jpeg" -> Just Jpeg
+  "jpg" -> Just Jpeg
+  "jpe" -> Just Jpeg
+  "jif" -> Just Jpeg
+  "jfif" -> Just Jpeg
   "jfi" -> Just Jpeg
-  "tiff" -> Just Tiff 
-  "gif" -> Just Gif 
-  "bmp" -> Just Bmp 
+  "tiff" -> Just Tiff
+  "gif" -> Just Gif
+  "bmp" -> Just Bmp
   _ -> Nothing
 
--- | Replaces Unspecified 
-defaultFormat :: ConvertFormat 
+-- | Replaces Unspecified
+defaultFormat :: ConvertFormat
 defaultFormat = Png
 
 formatExtension :: ConvertFormat -> [String]
-formatExtension c = case c of 
+formatExtension c = case c of
   Blp -> [".blp"]
   Png -> [".png"]
   Jpeg -> [".jpeg", ".jpg", ".jpe", ".jif", ".jfif", ".jfi"]
@@ -78,64 +79,91 @@ supportedExtensions :: [String]
 supportedExtensions = concat $ formatExtension <$> [Blp .. Bmp]
 
 data ConvertOptions = ConvertOptions {
-  convertInput :: FilePath
-, convertOutput :: FilePath 
-, convertFormat :: ConvertFormat
-, convertQuality :: Int
-, convertPreservesDirs :: Bool
-, convertShallow :: Bool
-, convertBlpFormat :: BlpFormat
+  convertInput          :: FilePath
+, convertOutput         :: FilePath
+, convertInputFormat    :: ConvertFormat
+, convertFormat         :: ConvertFormat
+, convertQuality        :: Int
+, convertPreservesDirs  :: Bool
+, convertShallow        :: Bool
+, convertBlpFormat      :: BlpFormat
 }
 
 convertFiles :: ConvertOptions -> IO ()
-convertFiles opts@ConvertOptions{..} = do 
-  efx <- doesFileExist convertInput 
-  if efx 
+convertFiles opts@ConvertOptions{..} = do
+  efx <- doesFileExist convertInput
+  if efx
     then convertFile opts False convertInput
-    else do 
-      edx <- doesDirectoryExist convertInput 
+    else do
+      edx <- doesDirectoryExist convertInput
       if edx then forEachFile' convertInput fileFilter $ convertFile opts True
       else fail "Given path is not exists!"
-  where 
-    fileFilter s = case convertFormat of 
+  where
+    fileFilter s = case convertFormat of
       Blp -> or $ ((takeExtension s) ==) <$> supportedExtensions
-      _ -> (".blp" ==) . takeExtension $ s 
+      _ -> (".blp" ==) . takeExtension $ s
+
+-- | Trye to guess format from name of file
+guessFormat :: FilePath -> Maybe ConvertFormat
+guessFormat = readConvertFormat . drop 1 . takeExtension
+
+-- | Try to load input file with desired format
+readInputFile :: FilePath -> ConvertFormat -> IO DynamicImage
+readInputFile inputFile format = case format of
+  Blp -> do
+    fc <- BS.readFile inputFile
+    case decodeBlp fc of
+      Left err -> fail $ "Failed to load file " <> inputFile <> ", parse error: " <> err
+      Right img -> pure img
+  Png -> loadJuicy readPng
+  Jpeg -> loadJuicy readJpeg
+  Tiff -> loadJuicy readTiff
+  Gif -> loadJuicy readGif
+  Bmp -> loadJuicy readBitmap
+  UnspecifiedFormat -> case guessFormat inputFile of
+    Just newFormat -> readInputFile inputFile newFormat
+    Nothing -> fail $ "Cannot infer format from filename " <> inputFile
+  where
+    loadJuicy :: (FilePath -> IO (Either String DynamicImage)) -> IO DynamicImage
+    loadJuicy f = do
+      mres <- f inputFile
+      case mres of
+        Left err -> fail $ "Failed to load file " <> inputFile <> " as " <> show format <> ", error: " <> err
+        Right img -> pure img
 
 convertFile :: ConvertOptions -> Bool -> FilePath -> IO ()
-convertFile ConvertOptions{..} isDir inputFile = do 
-  fc <- BS.readFile inputFile
-  img <- case decodeBlp fc of 
-    Left err -> fail $ inputFile ++ ": " ++ err 
-    Right img -> return img 
-
-  let distFormat = case convertFormat of 
+convertFile ConvertOptions{..} isDir inputFile = do
+  img <- readInputFile inputFile convertInputFormat
+  let distFormat = case convertFormat of
         UnspecifiedFormat -> if isDir then defaultFormat
-          else case readConvertFormat $ drop 1 $ takeExtension convertOutput of 
-            Just f -> f 
+          else case guessFormat convertOutput of
+            Just f -> f
             Nothing -> defaultFormat
         _ -> convertFormat
 
   when isDir $ createDirectoryIfMissing True convertOutput
-  let outputFile = if isDir 
-      then convertOutput ++ "/" ++ takeBaseName inputFile ++ fromMaybe "" (listToMaybe $ formatExtension distFormat)
+  let outputFile = if isDir
+      then convertOutput <> "/" <> takeBaseName inputFile <> fromMaybe "" (listToMaybe $ formatExtension distFormat)
       else convertOutput
 
   res <- (convertionFunction distFormat convertQuality convertBlpFormat) outputFile img
-  case res of 
-    Left err -> fail $ inputFile ++ ": " ++ err 
-    Right flag -> putStrLn $ inputFile ++ ": " ++ show flag
+  case res of
+    Left err -> fail $ inputFile <> ": " <> err
+    Right flag -> putStrLn $ inputFile <> ": " <> show flag
 
-convertionFunction :: ConvertFormat -> Int -> BlpFormat -> FilePath -> DynamicImage -> IO (Either String Bool)
-convertionFunction f quality blpFormat path img = case f of 
-  Blp -> case blpFormat of 
-    BlpJpeg -> fmap (const True) `fmap` writeBlpJpeg path quality img 
-    BlpUncompressedWithAlpha -> fmap (const True) `fmap` writeBlpUncompressedWithAlpha path img 
-    BlpUncompressedWithoutAlpha -> fmap (const True) `fmap` writeBlpUncompressedWithoutAlpha path img 
-  Png -> writeDynamicPng path img
-  Jpeg -> saveJpgImage quality path img >> return (Right True)
-  Tiff -> saveTiffImage path img >> return (Right True)
-  Gif -> case saveGifImage path img of 
-    Left er -> return $ Left er 
-    Right io -> io >> return (Right True)
-  Bmp -> saveBmpImage path img >> return (Right True)
-  UnspecifiedFormat -> return $ Left "no conversion format specified"
+convertionFunction :: ConvertFormat -> Int -> BlpFormat -> FilePath -> DynamicImage -> IO (Either String ())
+convertionFunction f quality blpFormat path img = case f of
+  Blp -> case blpFormat of
+    BlpJpeg -> writeBlpJpeg path quality img >> pure (Right ())
+    BlpUncompressedWithAlpha -> writeBlpUncompressedWithAlpha path img >> pure (Right ())
+    BlpUncompressedWithoutAlpha -> writeBlpUncompressedWithoutAlpha path img >> pure (Right ())
+  Png -> do
+    res <- writeDynamicPng path img
+    pure $ void res
+  Jpeg -> saveJpgImage quality path img >> pure (Right ())
+  Tiff -> saveTiffImage path img >> pure (Right ())
+  Gif -> case saveGifImage path img of
+    Left er -> pure $ Left er
+    Right io -> io >> pure (Right ())
+  Bmp -> saveBmpImage path img >> pure (Right ())
+  UnspecifiedFormat -> pure $ Left "no conversion format specified"

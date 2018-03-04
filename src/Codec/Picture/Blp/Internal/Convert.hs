@@ -40,22 +40,6 @@ toBlpUncompressable i = case i of
   ImageCMYK8 p -> toBlpRGB8 (convertImage p :: Image PixelRGB8)
   ImageCMYK16 p -> toBlpRGB8 (dropBits (convertImage p :: Image PixelRGB16) :: Image PixelRGB8)
 
--- toBlpJpeg :: DynamicImage -> Image PixelRGBA8
--- toBlpJpeg i = toBlpCMYK8 $ case i of
---   ImageY8 p -> promoteImage (promoteImage p :: Image PixelRGB8)
---   ImageY16 p -> promoteImage (dropBits (promoteImage p :: Image PixelRGB16) :: Image PixelRGB8)
---   ImageYF p -> promoteImage (convertFloatImage8 (promoteImage p :: Image PixelRGBF) :: Image PixelRGB8)
---   ImageYA8 p -> promoteImage p
---   ImageYA16 p -> dropBitsA (promoteImage p :: Image PixelRGBA16) :: Image PixelRGBA8
---   ImageRGB8 p -> promoteImage p
---   ImageRGB16 p -> promoteImage (dropBits p :: Image PixelRGB8)
---   ImageRGBF p -> promoteImage (convertFloatImage8 p :: Image PixelRGB8)
---   ImageRGBA8 p -> p
---   ImageRGBA16 p -> dropBitsA p :: Image PixelRGBA8
---   ImageYCbCr8 p -> promoteImage (convertImage p :: Image PixelRGB8)
---   ImageCMYK8 p -> promoteImage (convertImage p :: Image PixelRGB8)
---   ImageCMYK16 p -> promoteImage (dropBits (convertImage p :: Image PixelRGB16) :: Image PixelRGB8)
-
 dropBits :: Image PixelRGB16 -> Image PixelRGB8
 dropBits = pixelMap $ \(PixelRGB16 r g b) -> PixelRGB8 (f r) (f g) (f b)
   where

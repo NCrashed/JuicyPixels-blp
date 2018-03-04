@@ -87,6 +87,7 @@ data ConvertOptions = ConvertOptions {
 , convertPreservesDirs  :: Bool
 , convertShallow        :: Bool
 , convertBlpFormat      :: BlpFormat
+, convertBlpMinMipSize  :: Int
 }
 
 convertFiles :: ConvertOptions -> IO ()
@@ -146,17 +147,18 @@ convertFile ConvertOptions{..} isDir inputFile = do
       then convertOutput <> "/" <> takeBaseName inputFile <> fromMaybe "" (listToMaybe $ formatExtension distFormat)
       else convertOutput
 
-  res <- (convertionFunction distFormat convertQuality convertBlpFormat) outputFile img
+  let mipsCount = mipMapsUpTo convertBlpMinMipSize img
+  res <- (convertionFunction distFormat convertQuality convertBlpFormat) outputFile mipsCount img
   case res of
     Left err -> fail $ inputFile <> ": " <> err
     Right flag -> putStrLn $ inputFile <> ": " <> show flag
 
-convertionFunction :: ConvertFormat -> Int -> BlpFormat -> FilePath -> DynamicImage -> IO (Either String ())
-convertionFunction f quality blpFormat path img = case f of
+convertionFunction :: ConvertFormat -> Int -> BlpFormat -> FilePath -> Int -> DynamicImage -> IO (Either String ())
+convertionFunction f quality blpFormat path mipsCount img = case f of
   Blp -> case blpFormat of
-    BlpJpeg -> writeBlpJpeg path quality img >> pure (Right ())
-    BlpUncompressedWithAlpha -> writeBlpUncompressedWithAlpha path img >> pure (Right ())
-    BlpUncompressedWithoutAlpha -> writeBlpUncompressedWithoutAlpha path img >> pure (Right ())
+    BlpJpeg -> writeBlpJpeg path quality mipsCount img >> pure (Right ())
+    BlpUncompressedWithAlpha -> writeBlpUncompressedWithAlpha path mipsCount img >> pure (Right ())
+    BlpUncompressedWithoutAlpha -> writeBlpUncompressedWithoutAlpha path mipsCount img >> pure (Right ())
   Png -> do
     res <- writeDynamicPng path img
     pure $ void res

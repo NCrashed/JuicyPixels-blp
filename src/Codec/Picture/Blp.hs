@@ -9,9 +9,11 @@ module Codec.Picture.Blp(
   , encodeBlpJpeg
   , encodeBlpUncompressedWithAlpha
   , encodeBlpUncompressedWithoutAlpha
+  , mipMapsUpTo
   ) where
 
 import Codec.Picture
+import Codec.Picture.Types
 import Data.ByteString (ByteString)
 import Data.Monoid
 import Data.Word
@@ -78,26 +80,38 @@ decodeBlpMipmaps bs = do
         PixelRGBA8 r g b a = takeColor mip x y
         in PixelRGBA8 b g r (255 - a)
 
-writeBlpJpeg :: FilePath -> Int -> DynamicImage -> IO ()
-writeBlpJpeg fp quality img = do
-  let bs = encodeBlpJpeg quality img
+-- | Calculate needed count of mipmaps to cover sizes up to given minimum size (helper for 'writeBlp*' functions)
+mipMapsUpTo :: Int -- ^ Minimum size of picture side for generation of mipmap (ex. 2, 4, 16, 32, 64, 512, 1024 and etc)
+  -> DynamicImage -- ^ Image for which we generate mipmaps
+  -> Int
+mipMapsUpTo minSize img = maxNum - minSizeNum
+  where
+    w = dynamicMap imageWidth img
+    h = dynamicMap imageHeight img
+    minSide = min w h
+    maxNum = ceiling $ logBase 2 (fromIntegral minSide)
+    minSizeNum = floor $ logBase 2 (fromIntegral (max 1 minSize))
+
+writeBlpJpeg :: FilePath -> Int -> Int -> DynamicImage -> IO ()
+writeBlpJpeg fp quality numMips img = do
+  let bs = encodeBlpJpeg quality numMips img
   BSL.writeFile fp bs
 
-writeBlpUncompressedWithAlpha :: FilePath -> DynamicImage -> IO ()
-writeBlpUncompressedWithAlpha fp img = do
-  let bs = encodeBlpUncompressedWithAlpha img
+writeBlpUncompressedWithAlpha :: FilePath -> Int -> DynamicImage -> IO ()
+writeBlpUncompressedWithAlpha fp numMips img = do
+  let bs = encodeBlpUncompressedWithAlpha numMips img
   BSL.writeFile fp bs
 
-writeBlpUncompressedWithoutAlpha :: FilePath -> DynamicImage -> IO ()
-writeBlpUncompressedWithoutAlpha fp img = do
-  let bs = encodeBlpUncompressedWithoutAlpha img
+writeBlpUncompressedWithoutAlpha :: FilePath -> Int -> DynamicImage -> IO ()
+writeBlpUncompressedWithoutAlpha fp numMips img = do
+  let bs = encodeBlpUncompressedWithoutAlpha numMips img
   BSL.writeFile fp bs
 
-encodeBlpJpeg :: Int -> DynamicImage -> BSL.ByteString
-encodeBlpJpeg quality = encodeBlp . toBlpStruct BlpCompressionJPEG JPEGType quality
+encodeBlpJpeg :: Int -> Int -> DynamicImage -> BSL.ByteString
+encodeBlpJpeg quality numMips = encodeBlp numMips . toBlpStruct BlpCompressionJPEG JPEGType quality numMips
 
-encodeBlpUncompressedWithAlpha :: DynamicImage -> BSL.ByteString
-encodeBlpUncompressedWithAlpha = encodeBlp . toBlpStruct BlpCompressionUncompressed UncompressedWithAlpha 100
+encodeBlpUncompressedWithAlpha :: Int -> DynamicImage -> BSL.ByteString
+encodeBlpUncompressedWithAlpha numMips = encodeBlp numMips . toBlpStruct BlpCompressionUncompressed UncompressedWithAlpha 100 numMips
 
-encodeBlpUncompressedWithoutAlpha :: DynamicImage -> BSL.ByteString
-encodeBlpUncompressedWithoutAlpha = encodeBlp . toBlpStruct BlpCompressionUncompressed UncompressedWithoutAlpha 100
+encodeBlpUncompressedWithoutAlpha :: Int -> DynamicImage -> BSL.ByteString
+encodeBlpUncompressedWithoutAlpha numMips = encodeBlp numMips . toBlpStruct BlpCompressionUncompressed UncompressedWithoutAlpha 100 numMips

@@ -36,6 +36,7 @@ main = do
       <*> fmap not (switch (long "notPreserveStructure" <> short 'p' <> help "Will not produce subfolders while batch converting" ))
       <*> switch (long "shallow" <> short 's' <> help "Not look into subfolders while batch converting")
       <*> option blpFormatR (long "blpFormat" <> short 'b' <> value BlpJpeg <> help "Specifies what BLP internal format to use when converting to BLP. Values: jpg uncompressedWithAlpha uncompressedWithoutAlpha")
+      <*> option auto (long "min-mipmap-size" <> value 1 <> help "Minimum size of mimmap side to include in resulted BLP file")
     addCommand "stats" "Collects statistics about BLP images in folder and saves examples of BLP's for each sample" (uncurry collectStatistics) $ (<*>) helper $ (,)
       <$> strArgument (metavar "DIRECTORY" <> help "Input folder that stores blps (subfolders are processed)")
       <*> strArgument (metavar "OUTPUT_PATH" <> help "Here blp samples would be stored")

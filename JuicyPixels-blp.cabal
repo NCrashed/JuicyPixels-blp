@@ -33,6 +33,7 @@ library
     , bytestring            >= 0.10   && < 0.11
     , hashable              >= 1.2    && < 1.3
     , JuicyPixels           >= 3.2    && < 3.3
+    , text-show             >= 3.7    && < 3.8
     , vector                >= 0.10   && < 0.13
 
   default-extensions:
@@ -53,13 +54,14 @@ executable blp2any
   default-language:    Haskell2010
   build-depends:
       base                  >= 4.7    && < 5
-    , JuicyPixels-blp
-    , JuicyPixels
     , bytestring
     , directory             >= 1.2    && < 1.4
     , filepath              >= 1.4    && < 1.5
-    , unordered-containers  >= 0.2    && < 0.3
+    , JuicyPixels
+    , JuicyPixels-blp
     , optparse-simple       >= 0.0.3  && < 0.2
+    , text-show
+    , unordered-containers  >= 0.2    && < 0.3
 
   default-extensions:
     RecordWildCards

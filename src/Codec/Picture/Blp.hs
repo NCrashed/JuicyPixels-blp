@@ -17,6 +17,7 @@ import Codec.Picture.Types
 import Data.ByteString (ByteString)
 import Data.Monoid
 import Data.Word
+import TextShow.Debug.Trace
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -46,7 +47,7 @@ decodeBlp bs = do
 decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
 decodeBlpMipmaps bs = do
   blp <- parseBlp bs
-  case blpExt blp of
+  case blpExt $ traceTextShowId blp of
     BlpJpeg {..} -> do
       let jpegs = (blpJpegHeader <>) `fmap` blpJpegData
       mips <- mapM decodeJpeg jpegs
@@ -108,10 +109,10 @@ writeBlpUncompressedWithoutAlpha fp numMips img = do
   BSL.writeFile fp bs
 
 encodeBlpJpeg :: Int -> Int -> DynamicImage -> BSL.ByteString
-encodeBlpJpeg quality numMips = encodeBlp numMips . toBlpStruct BlpCompressionJPEG JPEGType quality numMips
+encodeBlpJpeg quality numMips = encodeBlp numMips {-. traceTextShowId-} . toBlpStruct BlpCompressionJPEG quality numMips
 
 encodeBlpUncompressedWithAlpha :: Int -> DynamicImage -> BSL.ByteString
-encodeBlpUncompressedWithAlpha numMips = encodeBlp numMips . toBlpStruct BlpCompressionUncompressed UncompressedWithAlpha 100 numMips
+encodeBlpUncompressedWithAlpha numMips = encodeBlp numMips {-. traceTextShowId-} . toBlpStruct BlpCompressionUncompressed 100 numMips
 
 encodeBlpUncompressedWithoutAlpha :: Int -> DynamicImage -> BSL.ByteString
-encodeBlpUncompressedWithoutAlpha numMips = encodeBlp numMips . toBlpStruct BlpCompressionUncompressed UncompressedWithoutAlpha 100 numMips
+encodeBlpUncompressedWithoutAlpha numMips = encodeBlp numMips {-. traceTextShowId-} . toBlpStruct BlpCompressionUncompressed 100 numMips

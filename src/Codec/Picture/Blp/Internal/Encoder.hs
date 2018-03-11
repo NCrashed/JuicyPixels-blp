@@ -31,7 +31,6 @@ import qualified Data.Vector.Storable as VS
 
 import Codec.Picture.Blp.Internal.Convert
 import Codec.Picture.Blp.Internal.Data
-import Debug.Trace
 
 -- | Convert spare BLP structure into compact stream of bytes
 encodeBlp :: Int -> BlpStruct -> ByteString
@@ -93,8 +92,8 @@ blpEncoder numMips BlpStruct{..} = do
       then xs ++ replicate (n - length xs) (last xs)
       else take n xs
     ensureLengthV n a xs = if V.length xs < n then xs <> V.replicate (n - V.length xs) a else V.take n xs
-    putMipMapOffsets = traverse_ putWord32le . traceShowId . ensureLength 16 . take numMips . fmap fst $ mipmaps
-    putMipMapSizes = traverse_ putWord32le . traceShowId . ensureLength 16 . take numMips . fmap snd $ mipmaps
+    putMipMapOffsets = traverse_ putWord32le . ensureLength 16 . take numMips . fmap fst $ mipmaps
+    putMipMapSizes = traverse_ putWord32le . ensureLength 16 . take numMips . fmap snd $ mipmaps
     putRgba8 (PixelRGBA8 r g b a) = putWord8 r >> putWord8 g >> putWord8 b >> putWord8 a
     putBlpExt = case blpExt of -- TODO: check sync of compression flag and BlpExt
        BlpJpeg{..} -> do
@@ -118,20 +117,22 @@ hasAlpha img = case img of
   _ -> False
 
 -- | Convert to BLP structure some image with given BLP options and quality (for JPEG compression)
-toBlpStruct :: BlpCompression -> BlpPictureType -> Int -> Int -> DynamicImage -> BlpStruct
-toBlpStruct compression pictype quality numMips img = BlpStruct {
+toBlpStruct :: BlpCompression -> Int -> Int -> DynamicImage -> BlpStruct
+toBlpStruct compression quality numMips img = BlpStruct {
     blpCompression = compression
-  , blpFlags = case pictype of
-     JPEGType -> if hasAlpha img then [BlpFlagAlphaChannel] else []
-     UncompressedWithAlpha -> [BlpFlagAlphaChannel]
-     UncompressedWithoutAlpha -> []
+  , blpFlags = if hasAlpha img
+      then [BlpFlagAlphaChannel]
+      else []
   , blpWidth = fromIntegral $ dynamicMap imageWidth img
   , blpHeight = fromIntegral $ dynamicMap imageHeight img
   , blpPictureType = pictype
-  , blpPictureSubType = 0
+  , blpPictureSubType = 5 -- world edit use this for war3mapMap.blp
   , blpExt = toBlpExt compression pictype quality numMips img'
   }
   where
+    pictype = if hasAlpha img
+      then UncompressedWithAlpha
+      else UncompressedWithoutAlpha
     img' = convertRGBA8 img
 
 -- | Take only first N mipmaps in list, fill rest with last non-fake mipmap
@@ -186,21 +187,28 @@ createMipMapsIndexed img = img : go img
 -- | Convert picture to BLP payload
 toBlpExt :: BlpCompression -> BlpPictureType -> Int -> Int -> Image PixelRGBA8 -> BlpExt
 toBlpExt compr pictype quality numMips img = case compr of
-  BlpCompressionJPEG -> toBlpJpg (fromIntegral quality) numMips img
+  BlpCompressionJPEG -> toBlpJpg (fromIntegral quality) numMips hasAlpha img
   BlpCompressionUncompressed -> case pictype of
     UncompressedWithAlpha -> toBlpUncompressed1 numMips img
     UncompressedWithoutAlpha -> toBlpUncompressed2 numMips img
     JPEGType -> toBlpUncompressed2 numMips img -- Consider this as without alpha
+  where
+    hasAlpha = case pictype of
+      UncompressedWithAlpha -> True
+      _ -> False
 
 -- | Convert picture to BLP JPEG and create mipmaps
-toBlpJpg :: Word8 -> Int -> Image PixelRGBA8 -> BlpExt
-toBlpJpg quality numMips img = BlpJpeg {
+toBlpJpg :: Word8 -> Int -> Bool -> Image PixelRGBA8 -> BlpExt
+toBlpJpg quality numMips hasAlpha img = BlpJpeg {
     blpJpegHeader = header
   , blpJpegData = mipmapsRawWithoutHeader
   }
   where
+    processAlpha :: Image PixelRGBA8 -> Image PixelRGBA8
+    processAlpha = pixelMap $ \p@(PixelRGBA8 r g b a) -> if hasAlpha then p else PixelRGBA8 r g b 255
+
     mipmaps :: [Image PixelCMYK8]
-    mipmaps = toBlpCMYK8 <$> fakeMipMaps numMips (createMipMaps img)
+    mipmaps = toBlpCMYK8 <$> (fakeMipMaps numMips . createMipMaps . processAlpha $ img)
 
     metadata :: CM.Metadatas
     metadata = CM.insert (CM.Unknown "JPEG Quality") (CM.Int $ fromIntegral quality) mempty

@@ -151,7 +151,7 @@ convertFile ConvertOptions{..} isDir inputFile = do
   res <- (convertionFunction distFormat convertQuality convertBlpFormat) outputFile mipsCount img
   case res of
     Left err -> fail $ inputFile <> ": " <> err
-    Right flag -> putStrLn $ inputFile <> ": " <> show flag
+    Right _ -> putStrLn $ inputFile <> ": Success"
 
 convertionFunction :: ConvertFormat -> Int -> BlpFormat -> FilePath -> Int -> DynamicImage -> IO (Either String ())
 convertionFunction f quality blpFormat path mipsCount img = case f of

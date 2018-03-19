@@ -1,7 +1,11 @@
 name:                JuicyPixels-blp
 version:             0.1.0.1
 synopsis:            BLP format decoder/encoder over JuicyPixels library
-description:         Please see README.md
+description:
+  The library provides decoding/encoding functions for BLP1 texture format of Warcraft III game.
+  The result is represented in types of [JuicyPixels](http://hackage.haskell.org/package/JuicyPixels) library.
+
+  Please see README.md for detailed description.
 homepage:            http://github.com/NCrashed/JuicyPixels-blp#readme
 license:             BSD3
 license-file:        LICENSE
@@ -51,7 +55,7 @@ executable blp2any
     Convert
     File
     Statistics
-  ghc-options:       -threaded -O2 -rtsopts -with-rtsopts=-N
+  ghc-options:       -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
   build-depends:
       base                  >= 4.7    && < 5

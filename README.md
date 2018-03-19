@@ -1,6 +1,8 @@
 JuicyPixels-blp
 ===============
 
+[![Build Status](https://travis-ci.org/NCrashed/JuicyPixels-blp.svg?branch=master)](https://travis-ci.org/NCrashed/JuicyPixels-blp)
+
 The library provides decoding/encoding functions for BLP1 texture format of Warcraft III game.
 The result is represented in types of [JuicyPixels](http://hackage.haskell.org/package/JuicyPixels) library.
 

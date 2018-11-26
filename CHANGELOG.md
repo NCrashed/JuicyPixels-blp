@@ -1,3 +1,8 @@
+0.1.1.0
+=======
+
+Relax upper boundary for `JuicyPixels-3.3`.
+
 0.1.0.1
 =======
 

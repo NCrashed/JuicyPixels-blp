@@ -97,12 +97,14 @@ convertFiles opts@ConvertOptions{..} = do
     then convertFile opts False convertInput
     else do
       edx <- doesDirectoryExist convertInput
-      if edx then forEachFile' convertInput fileFilter $ convertFile opts True
-      else fail "Given path is not exists!"
+      if edx then do 
+        putStrLn $ "Converting all files from " ++ convertInput ++ " folder"
+        forEachFile' convertInput fileFilter $ convertFile opts True
+      else fail $ "Given path " ++ convertInput ++ " doesn't exsist!"
   where
     fileFilter s = case convertFormat of
-      Blp -> or $ ((takeExtension s) ==) <$> supportedExtensions
-      _ -> (".blp" ==) . takeExtension $ s
+      Blp -> (fmap toLower $ takeExtension s) `elem` supportedExtensions
+      _ -> (".blp" ==) . fmap toLower . takeExtension $ s
 
 -- | Trye to guess format from name of file
 guessFormat :: FilePath -> Maybe ConvertFormat
@@ -144,11 +146,14 @@ convertFile ConvertOptions{..} isDir inputFile = do
 
   when isDir $ createDirectoryIfMissing True convertOutput
   let outputFile = if isDir
-      then convertOutput <> "/" <> takeBaseName inputFile <> fromMaybe "" (listToMaybe $ formatExtension distFormat)
+      then convertOutput 
+        </> drop (length convertInput + 1) (takeDirectory inputFile)
+        </> (takeBaseName inputFile <> fromMaybe "" (listToMaybe $ formatExtension distFormat))
       else convertOutput
+  createDirectoryIfMissing True $ takeDirectory outputFile
 
   let mipsCount = mipMapsUpTo convertBlpMinMipSize img
-  res <- (convertionFunction distFormat convertQuality convertBlpFormat) outputFile mipsCount img
+  res <- convertionFunction distFormat convertQuality convertBlpFormat outputFile mipsCount img
   case res of
     Left err -> fail $ inputFile <> ": " <> err
     Right _ -> putStrLn $ inputFile <> ": Success"

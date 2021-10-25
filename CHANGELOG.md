@@ -1,3 +1,8 @@
+0.2.0.0
+=======
+
+Implement #1. Tool now preserves subfolder structure.
+
 0.1.3.0
 =======
 

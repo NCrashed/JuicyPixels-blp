@@ -169,7 +169,7 @@ createMipMaps img = img : go img
       in PixelRGBA8 (avg' p00r p10r p01r p11r) (avg' p00g p10g p01g p11g) (avg' p00b p10b p01b p11b) (avg' p00a p10a p01a p11a)
     power2Scale i = generateImage (avg i) (downgrade $ imageWidth i) (downgrade $ imageHeight i)
     downgrade v = max 1 $ v `div` 2
-    go i | imageWidth i <= 1 && imageHeight i <= 1 = []
+    go i | imageWidth i <= 1 || imageHeight i <= 1 = []
          | otherwise = let i' = power2Scale i in i' : go i'
 
 -- | Scale image to form the sequence of mipmaps. The first element is always the original picture.
@@ -181,7 +181,7 @@ createMipMapsIndexed img = img : go img
   where
     power2Scale i = generateImage (\x y -> pixelAt i (x*2) (y*2)) (downgrade $ imageWidth i) (downgrade $ imageHeight i)
     downgrade v = max 1 $ v `div` 2
-    go i | imageWidth i <= 1 && imageHeight i <= 1 = []
+    go i | imageWidth i <= 1 || imageHeight i <= 1 = []
          | otherwise = let i' = power2Scale i in i' : go i'
 
 -- | Convert picture to BLP payload

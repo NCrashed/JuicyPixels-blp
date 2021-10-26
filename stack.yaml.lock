@@ -3,17 +3,10 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages:
-- completed:
-    hackage: JuicyPixels-3.3@sha256:f4af7f866e0cadc2ff3f2b7dfe9eab898832bbc7c005aca7e5256b5a0560f944,3863
-    pantry-tree:
-      size: 2597
-      sha256: 84f37063bb5d0bd510f9963bb26598f4cdc59983cfbada3c5f90d598a6dfcb46
-  original:
-    hackage: JuicyPixels-3.3
+packages: []
 snapshots:
 - completed:
-    size: 506735
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/12/19.yaml
-    sha256: 78de20c2fce471a4c4a19e935e216538e7f0308f6f15ad72aedc5484de45f09b
-  original: lts-12.19
+    size: 586069
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/14.yaml
+    sha256: 87842ecbaa8ca9cee59a7e6be52369dbed82ed075cb4e0d152614a627e8fd488
+  original: lts-18.14

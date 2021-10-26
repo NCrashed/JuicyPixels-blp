@@ -1,3 +1,8 @@
+0.2.1.0
+=======
+
+Relax upper boundary for `text-show-3.9`.
+
 0.2.0.0
 =======
 

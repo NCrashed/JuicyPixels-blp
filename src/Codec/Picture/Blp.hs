@@ -114,13 +114,11 @@ uncompressedLevels width height fits render mips
 mipMapsUpTo :: Int -- ^ Minimum size of picture side for generation of mipmap (ex. 2, 4, 16, 32, 64, 512, 1024 and etc)
   -> DynamicImage -- ^ Image for which we generate mipmaps
   -> Int
-mipMapsUpTo minSize img = maxNum - minSizeNum
+-- Counts the levels whose smaller side is at least the minimum (mip 0
+-- always counts), matching where the encoder's mip chain stops.
+mipMapsUpTo minSize img = max 1 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) minSide
   where
-    w = dynamicMap imageWidth img
-    h = dynamicMap imageHeight img
-    minSide = min w h
-    maxNum = ceiling $ logBase 2 (fromIntegral minSide :: Double)
-    minSizeNum = floor $ logBase 2 (fromIntegral (max 1 minSize) :: Double)
+    minSide = min (dynamicMap imageWidth img) (dynamicMap imageHeight img)
 
 writeBlpJpeg :: FilePath -> Int -> Int -> DynamicImage -> IO ()
 writeBlpJpeg fp quality numMips img = do

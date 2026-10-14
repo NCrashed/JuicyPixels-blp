@@ -34,7 +34,7 @@ encodeBlp numMips = runPut . blpEncoder numMips
 
 -- | Raw encoder for BLP
 blpEncoder :: Int -> BlpStruct -> Put
-blpEncoder numMips BlpStruct{..} = do
+blpEncoder requestedMips BlpStruct{..} = do
   putBlpVersion
   putCompression
   putFlags
@@ -46,6 +46,8 @@ blpEncoder numMips BlpStruct{..} = do
   putMipMapSizes
   putBlpExt
   where
+    -- A file without mip 0 has no image at all, so always write it.
+    numMips = max 1 requestedMips
     putBlpVersion = putByteString "BLP1"
     putCompression = putWord32le $ case blpCompression of
       BlpCompressionJPEG -> 0

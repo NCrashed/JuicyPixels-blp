@@ -4,6 +4,7 @@ import Codec.Picture
 import Codec.Picture.Blp
 import Codec.Picture.Types (convertImage)
 import Control.Exception (bracket_, try)
+import Control.Monad (forM_)
 import Data.ByteString (ByteString)
 import Data.List (isInfixOf)
 import Data.Word
@@ -275,11 +276,20 @@ encoderTests = testGroup "encoder"
       sizes levels @?= [(64, 16), (32, 8), (16, 4), (8, 2), (4, 1)]
       odd' <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 16 (ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 1 2 3 4) 5 3)
       sizes odd' @?= [(5, 3), (2, 1)]
-  , testCase "mipMapsUpTo" $ do
+  , testCase "mipMapsUpTo counts every level down to the minimum side" $ do
       let img w h = ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 0 0 0 0) w h
-      mipMapsUpTo 1 (img 16 16) @?= 4
-      mipMapsUpTo 4 (img 16 16) @?= 2
-      mipMapsUpTo 1 (img 64 16) @?= 4
+      mipMapsUpTo 1 (img 16 16) @?= 5
+      mipMapsUpTo 4 (img 16 16) @?= 3
+      mipMapsUpTo 1 (img 64 16) @?= 5
+      mipMapsUpTo 1 (img 5 5) @?= 3
+      mipMapsUpTo 1 (img 1 1) @?= 1
+      mipMapsUpTo 32 (img 16 16) @?= 1
+  , testCase "zero or negative mipmap count still writes mip 0" $ do
+      let enc n = [ encodeBlpJpeg 90 n (ImageRGBA8 gradient)
+                  , encodeBlpUncompressedWithAlpha n (ImageRGBA8 gradient) ]
+      forM_ (concatMap enc [0, -1]) $ \bs -> do
+        levels <- decodeLevels (BSL.toStrict bs)
+        sizes levels @?= [(16, 16)]
   ]
 
 fileTests :: TestTree

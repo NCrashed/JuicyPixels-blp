@@ -12,7 +12,7 @@ import System.Directory
 import System.FilePath
 
 import qualified Data.ByteString as BS
-import qualified Data.HashMap.Strict as H 
+import qualified Data.Map.Strict as M
 import qualified Data.List as L 
 
 import File 
@@ -20,13 +20,13 @@ import File
 type BlpInfo = (BlpCompression, [BlpFlag], BlpPictureType, Word32)
 type BlpStat = (FilePath, Int)
 
-type StatMap = H.HashMap BlpInfo BlpStat
+type StatMap = M.Map BlpInfo BlpStat
 
 collectSamples :: FilePath -> IO StatMap
 collectSamples dir = do 
   f <- doesDirectoryExist dir
   unless f $ fail $ "Provided directory " ++ dir ++ " doesn't exists!"
-  forEachFile dir ((".blp" ==).takeExtension) collectSample H.empty
+  forEachFile dir ((".blp" ==).takeExtension) collectSample M.empty
   
 collectSample :: StatMap -> FilePath -> IO StatMap 
 collectSample stats inputFile = do 
@@ -40,7 +40,7 @@ blpType :: BlpStruct -> BlpInfo
 blpType BlpStruct{..} = (blpCompression, blpFlags, blpPictureType, blpPictureSubType)
 
 adjust' :: (Maybe BlpStat -> BlpStat) -> BlpInfo -> StatMap -> StatMap 
-adjust' f k m = H.insert k (f $ H.lookup k m) m
+adjust' f k m = M.insert k (f $ M.lookup k m) m
 
 updateStat :: FilePath -> Maybe BlpStat -> BlpStat 
 updateStat path Nothing = (path, 1)
@@ -49,7 +49,7 @@ updateStat _ (Just (p, i)) = (p, i+1)
 printStatistics :: FilePath -> StatMap -> IO () 
 printStatistics dir stats = do
     createDirectoryIfMissing True dir
-    forM_ (H.toList stats) $ \((compression, flags, pictureType, pictureSubType), (path, i)) -> do 
+    forM_ (M.toList stats) $ \((compression, flags, pictureType, pictureSubType), (path, i)) -> do 
       let postfix = L.intercalate "-" [show compression, show flags, show pictureType, show pictureSubType]
       copyFile path $ dir ++ "/" ++ dropExtension (takeFileName path) ++ "-"
         ++ postfix ++ ".blp"

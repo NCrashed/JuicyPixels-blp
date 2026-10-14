@@ -140,10 +140,10 @@ writeBlpUncompressedWithoutAlpha fp numMips img = do
   BSL.writeFile fp bs
 
 encodeBlpJpeg :: Int -> Int -> DynamicImage -> BSL.ByteString
-encodeBlpJpeg quality numMips = encodeBlp numMips {-. traceTextShowId-} . toBlpStruct BlpCompressionJPEG quality numMips
+encodeBlpJpeg quality numMips = encodeBlp numMips . toBlpStruct BlpCompressionJPEG quality numMips
 
 encodeBlpUncompressedWithAlpha :: Int -> DynamicImage -> BSL.ByteString
-encodeBlpUncompressedWithAlpha numMips = encodeBlp numMips {-. traceTextShowId-} . toBlpStruct BlpCompressionUncompressed 100 numMips
+encodeBlpUncompressedWithAlpha numMips = encodeBlp numMips . toBlpStruct BlpCompressionUncompressed 100 numMips
 
 encodeBlpUncompressedWithoutAlpha :: Int -> DynamicImage -> BSL.ByteString
-encodeBlpUncompressedWithoutAlpha numMips = encodeBlp numMips {-. traceTextShowId-} . toBlpStruct BlpCompressionUncompressed 100 numMips
+encodeBlpUncompressedWithoutAlpha numMips = encodeBlp numMips . toBlpStruct BlpCompressionUncompressed 100 numMips

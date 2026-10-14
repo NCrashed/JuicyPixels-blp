@@ -14,10 +14,10 @@ module Codec.Picture.Blp(
 
 import Codec.Picture
 import Codec.Picture.Types
+import Data.Bits (shiftR)
 import Data.ByteString (ByteString)
 import Data.Monoid
 import Data.Word
-import TextShow.Debug.Trace
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -47,7 +47,9 @@ decodeBlp bs = do
 decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
 decodeBlpMipmaps bs = do
   blp <- parseBlp bs
-  case blpExt $ traceTextShowId blp of
+  let width = fromIntegral $ blpWidth blp
+      height = fromIntegral $ blpHeight blp
+  case blpExt blp of
     BlpJpeg {..} -> do
       let jpegs = (blpJpegHeader <>) `fmap` blpJpegData
       case jpegs of
@@ -70,33 +72,45 @@ decodeBlpMipmaps bs = do
               useAlpha = BlpFlagAlphaChannel `elem` blpFlags blp && jpegAlphaIsUsable mip0
           Right $ fromBlpJpeg useAlpha <$> (mip0 : lazyTail)
 
-    BlpUncompressed1 {..} -> do
-      let mkImage mip = ImageRGBA8 $ generateImage (gen mip) (fromIntegral $ blpWidth blp) (fromIntegral $ blpHeight blp)
-      return $ mkImage `fmap` blpU1MipMaps
+    BlpUncompressed1 {..} -> uncompressedLevels width height fits render blpU1MipMaps
       where
-      palette :: Word8 -> PixelRGBA8
-      palette i = blpU1Palette V.! fromIntegral i
+      fits n (indexList, alphaList) = BS.length indexList >= n && BS.length alphaList >= n
+      render w (indexList, alphaList) x y = let
+        i = y * w + x
+        PixelRGBA8 r g b _ = blpU1Palette V.! fromIntegral (indexList `BS.index` i)
+        in PixelRGBA8 b g r (alphaList `BS.index` i)
 
-      makeIndex x y = y*(fromIntegral $ blpWidth blp)+x
-      takeColor mip x y = palette $ fst mip `BS.index` makeIndex x y
-      takeAlpha mip x y = snd mip `BS.index` makeIndex x y
-      gen mip x y = let
-        PixelRGBA8 r g b _ = takeColor mip x y
-        a = takeAlpha mip x y
-        in PixelRGBA8 b g r a
-
-    BlpUncompressed2 {..} -> do
-      let mkImage mip = ImageRGBA8 $ generateImage (gen mip) (fromIntegral $ blpWidth blp) (fromIntegral $ blpHeight blp)
-      return $ mkImage `fmap` blpU2MipMaps
+    BlpUncompressed2 {..} -> uncompressedLevels width height fits render blpU2MipMaps
       where
-      palette :: Word8 -> PixelRGBA8
-      palette i = blpU2Palette V.! fromIntegral i
+      fits n indexList = BS.length indexList >= n
+      render w indexList x y = let
+        PixelRGBA8 r g b _ = blpU2Palette V.! fromIntegral (indexList `BS.index` (y * w + x))
+        -- Without-alpha textures have no alpha to decode; the palette's fourth
+        -- byte is not alpha and tools fill it inconsistently.
+        in PixelRGBA8 b g r 255
 
-      makeIndex x y = y*(fromIntegral $ blpWidth blp)+x
-      takeColor mip x y = palette $ mip `BS.index` makeIndex x y
-      gen mip x y = let
-        PixelRGBA8 r g b a = takeColor mip x y
-        in PixelRGBA8 b g r (255 - a)
+-- | Render the mipmaps of an uncompressed BLP. Level @l@ of a @w@ x @h@
+-- texture is @w / 2^l@ by @h / 2^l@, but never smaller than 1x1. The list
+-- stops at the first level whose buffer is too short for its size, so the
+-- result is always a prefix of the mip levels; a short level 0 fails the file.
+uncompressedLevels :: Int -> Int
+  -> (Int -> mip -> Bool) -- ^ Does the buffer hold this many pixels?
+  -> (Int -> mip -> Int -> Int -> PixelRGBA8) -- ^ Pixel at (x, y) of a level of given width
+  -> [mip]
+  -> Either String [DynamicImage]
+uncompressedLevels width height fits render mips
+  | null mips = Right []
+  | otherwise = case go 0 mips of
+      [] -> Left "Mipmap 0 is too short for the image size"
+      levels -> Right levels
+  where
+    go l (mip : rest)
+      | fits (w * h) mip = ImageRGBA8 (generateImage (render w mip) w h) : go (l + 1) rest
+      where
+        w = levelSide width l
+        h = levelSide height l
+    go _ _ = []
+    levelSide side l = if side <= 0 then 0 else max 1 (side `shiftR` l)
 
 -- | Calculate needed count of mipmaps to cover sizes up to given minimum size (helper for 'writeBlp*' functions)
 mipMapsUpTo :: Int -- ^ Minimum size of picture side for generation of mipmap (ex. 2, 4, 16, 32, 64, 512, 1024 and etc)

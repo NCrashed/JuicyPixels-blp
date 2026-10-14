@@ -16,7 +16,6 @@ import Data.Binary.Put
 import Data.Bits
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Foldable (traverse_)
-import Data.Maybe
 import Data.Word
 
 import qualified Codec.Picture.Metadata as CM
@@ -35,7 +34,7 @@ encodeBlp numMips = runPut . blpEncoder numMips
 
 -- | Raw encoder for BLP
 blpEncoder :: Int -> BlpStruct -> Put
-blpEncoder numMips BlpStruct{..} = do
+blpEncoder requestedMips BlpStruct{..} = do
   putBlpVersion
   putCompression
   putFlags
@@ -47,6 +46,8 @@ blpEncoder numMips BlpStruct{..} = do
   putMipMapSizes
   putBlpExt
   where
+    -- A file without mip 0 has no image at all, so always write it.
+    numMips = max 1 requestedMips
     putBlpVersion = putByteString "BLP1"
     putCompression = putWord32le $ case blpCompression of
       BlpCompressionJPEG -> 0
@@ -222,25 +223,15 @@ toBlpJpg quality numMips keepAlpha img = BlpJpeg {
 -- | Manually scan shared prefix of each mipmap
 scanHeader :: Int -> [BS.ByteString] -> BS.ByteString
 scanHeader _ [] = mempty
-scanHeader maxheader mipmaps = go mipmaps mempty
+scanHeader maxheader mipmaps@(m0 : _) = BS.take common m0
   where
     -- Each mipmap keeps at least one byte of its own: faked mipmaps are
     -- copies of a real one, and a header swallowing a whole stream would
     -- leave a zero-size slot that readers skip.
     limit = min maxheader (minimum (BS.length <$> mipmaps) - 1)
-    go !mps !acc = let
-      unconses = BS.uncons <$> mps :: [Maybe (Word8, BS.ByteString)]
-      heads = fmap fst <$> unconses :: [Maybe Word8]
-      tails = catMaybes $ fmap snd <$> unconses :: [BS.ByteString]
-      hitEmpty = any isNothing heads
-      firstByte = case heads of
-        (Just v : _) -> v
-        _ -> 0
-      allEqual = all (Just firstByte ==) heads
-      in if | hitEmpty -> acc
-            | BS.length acc >= limit -> acc
-            | allEqual -> go tails (acc `BS.snoc` firstByte)
-            | otherwise -> acc
+    common = length . takeWhile sameAt $ [0 .. limit - 1]
+    -- Safe to index: every stream is longer than the limit.
+    sameAt i = all (\m -> BS.index m i == BS.index m0 i) mipmaps
 
 -- | Helper to quantise colors to 256 colour pallete
 makePallette :: Image PixelRGBA8 -> (Image Pixel8, Palette)

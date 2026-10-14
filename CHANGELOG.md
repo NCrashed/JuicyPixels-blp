@@ -8,10 +8,15 @@ Breaking changes:
   `ImageY8` or `ImageRGB8`.
 - Removed unused functions from `Codec.Picture.Blp.Internal.Convert`:
   `toPngRepresentable` and `toBlpUncompressable`.
+- `mipMapsUpTo` counts every level down to the minimum side; it was one short
+  and returned 0 or less for tiny images.
 - Removed the `TextShow` and `Hashable` instances from
   `Codec.Picture.Blp.Internal.Data`, and with them the `text-show` and
   `hashable` dependencies. `blp2any` no longer depends on
   `unordered-containers`.
+
+The encoder always writes mip 0; a mipmap count of zero or less used to
+produce an unreadable file, which `blp2any` did for 1x1 images.
 
 The uncompressed encoder no longer hands out ByteStrings over image memory it
 does not keep alive, and no longer relies on an orphan, endianness-dependent

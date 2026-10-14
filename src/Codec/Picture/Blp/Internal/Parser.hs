@@ -135,9 +135,27 @@ skipToOffset i = do
   if diff <= 0 then return ()
     else void $ AT.take diff
 
+-- | Read up to 256 palette entries, bounded by the offset of the first
+-- mipmap. Some BLP1 files in the wild (e.g. produced by community map
+-- tools) only emit the palette entries that are actually used, so the
+-- palette region between the main header and the first mipmap can be
+-- shorter than the canonical 1024 bytes. We pad the resulting vector to
+-- 256 entries with transparent black so the rest of the codebase, which
+-- indexes the palette by an arbitrary `Word8`, stays sound.
+paletteParser :: [(Word32, Word32)] -> Parser (V.Vector PixelRGBA8)
+paletteParser mps = do
+  pos <- getPos
+  let firstOffset = case mps of
+        ((o, _):_) -> fromIntegral o
+        []         -> pos + 1024  -- no mipmaps: keep historical behaviour
+      available   = max 0 (firstOffset - pos)
+      nEntries    = min 256 (available `div` 4)
+  entries <- V.replicateM nEntries rgba8
+  return $ entries V.++ V.replicate (256 - nEntries) (PixelRGBA8 0 0 0 0)
+
 blpUncompressed1Parser :: [(Word32, Word32)] -> Parser BlpExt
 blpUncompressed1Parser mps = do
-  blpU1Palette <- V.replicateM 256 rgba8
+  blpU1Palette <- paletteParser mps
   blpU1MipMaps <- forM mps $ \(offset, size) -> do
     skipToOffset offset
     let halfSize = fromIntegral size `div` 2
@@ -148,7 +166,7 @@ blpUncompressed1Parser mps = do
 
 blpUncompressed2Parser :: [(Word32, Word32)] -> Parser BlpExt
 blpUncompressed2Parser mps = do
-  blpU2Palette <- V.replicateM 256 rgba8
+  blpU2Palette <- paletteParser mps
   blpU2MipMaps <- forM mps $ \(offset, size) -> do
     skipToOffset offset
     AT.take (fromIntegral size) <?> "index list"

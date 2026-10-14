@@ -14,6 +14,11 @@ Decoder robustness for BLP1 files found in the wild:
 - Without-alpha textures decode opaque regardless of the palette's fourth
   byte, so the encoder's own output no longer comes back transparent (#14).
 - Decoding no longer dumps the parsed structure to stderr (#15).
+- The JPEG encoder writes plain BGRA planes instead of dividing colour by
+  alpha, and a uniformly semi-transparent alpha plane is kept; only all-0x00
+  or all-0xFF planes count as unpopulated (#17).
+- The JPEG encoder shares one header between mipmaps; 1x1 textures no longer
+  encode to a file without image data (#18).
 - Skip mipmap slots that point past the end of the file or overlap an earlier
   one (#7).
 - Decode JPEG planes as BGRA instead of CMYK (#11).

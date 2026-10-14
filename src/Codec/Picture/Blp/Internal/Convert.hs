@@ -34,27 +34,31 @@ fromBlpJpeg useAlpha i = case i of
 -- compressed BLP1. Some set the alpha flag and fill the plane with 0x00,
 -- others with 0xFF, and both mean the same thing: the texture is opaque and
 -- the plane was never populated. Taking either at face value gives a wrong
--- answer for half the files in the wild, so a plane holding a single value
--- is treated as carrying no information at all.
+-- answer for half the files in the wild, so a plane that is entirely 0x00 or
+-- entirely 0xFF is treated as carrying no information at all.
 --
--- A plane that actually varies is used as it stands.
+-- Any other plane, including one that is uniformly semi-transparent, is used
+-- as it stands.
 jpegAlphaIsUsable :: DynamicImage -> Bool
 jpegAlphaIsUsable i = case i of
-  ImageCMYK8 p -> not . uniformAlpha . blpJpegToRGBA8 $ p
+  ImageCMYK8 p -> case uniformAlpha (blpJpegToRGBA8 p) of
+    Just a -> a /= 0 && a /= 255
+    Nothing -> True
   _ -> True
 
--- | Whether every pixel of an image carries the same alpha value.
-uniformAlpha :: Image PixelRGBA8 -> Bool
+-- | The alpha value every pixel of an image carries, if they all agree. An
+-- empty image counts as uniformly opaque.
+uniformAlpha :: Image PixelRGBA8 -> Maybe Word8
 uniformAlpha img
-  | imageWidth img <= 0 || imageHeight img <= 0 = True
-  | otherwise = pixelFold same True img
+  | imageWidth img <= 0 || imageHeight img <= 0 = Just 255
+  | pixelFold same True img = Just a0
+  | otherwise = Nothing
   where
     PixelRGBA8 _ _ _ a0 = pixelAt img 0 0
     same acc _ _ (PixelRGBA8 _ _ _ a) = acc && a == a0
 
 -- | Reinterpret the four planes a JPEG decoder labelled CMYK as the BGRA they
--- actually are. This inverts 'toBlpCMYK8', minus its division by the alpha
--- channel.
+-- actually are. This inverts 'toBlpCMYK8'.
 blpJpegToRGBA8 :: Image PixelCMYK8 -> Image PixelRGBA8
 blpJpegToRGBA8 = pixelMap convert
   where
@@ -138,17 +142,14 @@ convertCMYK8Image = pixelMap convert
     g = fromIntegral m * ik
     b = fromIntegral c * ik
 
+-- | Lay out the B, G, R and A planes of a texture as the four components of
+-- a BLP1 JPEG. The encoder labels them CMYK only because that is the
+-- four-component JPEG it can write; this is the exact inverse of
+-- 'blpJpegToRGBA8'.
 toBlpCMYK8 :: Image PixelRGBA8 -> Image PixelCMYK8
 toBlpCMYK8 = pixelMap convert
   where
-  clampWord8 = fromIntegral . max 0 . min 255
-  convert (PixelRGBA8 r g b a) = PixelCMYK8 (clampWord8 c) (clampWord8 m) (clampWord8 y) a
-    where
-    ik = fromIntegral a :: Double
-    c, m, y :: Int
-    c = round $ 256 * fromIntegral b / ik
-    m = round $ 256 * fromIntegral g / ik
-    y = round $ 256 * fromIntegral r / ik
+  convert (PixelRGBA8 r g b a) = PixelCMYK8 b g r a
 
 toBlpRGBA8 :: Image PixelRGBA8 -> Image PixelRGBA8
 toBlpRGBA8 = pixelMap convert

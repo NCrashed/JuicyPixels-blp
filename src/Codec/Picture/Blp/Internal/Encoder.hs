@@ -225,9 +225,12 @@ toBlpJpg quality numMips hasAlpha img = BlpJpeg {
 -- | Manually scan shared prefix of each mipmap
 scanHeader :: Int -> [BS.ByteString] -> BS.ByteString
 scanHeader _ [] = mempty
-scanHeader maxheader [x] = BS.take maxheader x
 scanHeader maxheader mipmaps = go mipmaps mempty
   where
+    -- Each mipmap keeps at least one byte of its own: faked mipmaps are
+    -- copies of a real one, and a header swallowing a whole stream would
+    -- leave a zero-size slot that readers skip.
+    limit = min maxheader (minimum (BS.length <$> mipmaps) - 1)
     go !mps !acc = let
       unconses = BS.uncons <$> mps :: [Maybe (Word8, BS.ByteString)]
       heads = fmap fst <$> unconses :: [Maybe Word8]
@@ -238,7 +241,7 @@ scanHeader maxheader mipmaps = go mipmaps mempty
         _ -> 0
       allEqual = all (Just firstByte ==) heads
       in if | hitEmpty -> acc
-            | maxheader >= BS.length acc -> acc
+            | BS.length acc >= limit -> acc
             | allEqual -> go tails (acc `BS.snoc` firstByte)
             | otherwise -> acc
 

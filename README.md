@@ -46,8 +46,8 @@ minor versions.
 
 ## What works
 
-- **Decoding** all BLP1 variants Warcraft III uses: JPEG, paletted with 8-bit
-  alpha, and paletted without alpha, including their mipmaps.
+- **Decoding** all BLP1 variants: JPEG, and paletted with 0, 1, 4 or 8-bit
+  alpha, including their mipmaps.
 - **Damaged and non-standard files** that are common in community maps and
   ports of World of Warcraft assets:
   - odd header values;
@@ -66,12 +66,6 @@ minor versions.
 - **BLP0 and BLP2.** Only BLP1 is supported. BLP0 keeps mipmaps in separate
   `.b00`–`.b15` files; BLP2 is the World of Warcraft variant
   ([#3](https://github.com/NCrashed/JuicyPixels-blp/issues/3)).
-- **1-bit and 4-bit alpha.** Paletted files with these decode as opaque
-  ([#25](https://github.com/NCrashed/JuicyPixels-blp/issues/25)).
-- **How alpha is chosen.** The decoder picks with-alpha or without-alpha
-  from the `extra` header field instead of `alphaBits`. It also rejects
-  `extra` values it does not know
-  ([#25](https://github.com/NCrashed/JuicyPixels-blp/issues/25)).
 - **Incomplete mip chain.** The encoder stops the mip chain when either side
   reaches 1 pixel, for example at 4×1 for a 32×8 texture, instead of going on
   to 1×1 ([#26](https://github.com/NCrashed/JuicyPixels-blp/issues/26)).

@@ -76,6 +76,23 @@ uncompressedTests = testGroup "uncompressed"
   [ testCase "with alpha, picture type 4" $ assertPixels withAlphaPixel (withAlphaFile 4)
   , testCase "with alpha, picture type 3" $ assertPixels withAlphaPixel (withAlphaFile 3)
   , testCase "picture type 0 decodes as with alpha (#10)" $ assertPixels withAlphaPixel (withAlphaFile 0)
+  , testCase "alphaBits 8 keeps alpha whatever extra says (#25)" $
+      assertPixels withAlphaPixel $ uncompressed defHeader { hPictureType = 5 } (palette 256) [indices <> alphaPlane]
+  , testCase "extra has no effect (#25)" $
+      forM_ [0, 1, 2, 3, 4, 5, 6, 7, 99] $ \extra ->
+        assertPixels withAlphaPixel (withAlphaFile extra)
+  , testCase "alphaBits 0 ignores a trailing alpha list (#25)" $
+      assertPixels withoutAlphaPixel $ uncompressed defHeader { hFlags = 0, hPictureType = 4 } (palette 256) [indices <> alphaPlane]
+  , testCase "1-bit alpha, least significant bit first (#25)" $ do
+      let bs = uncompressed defHeader { hFlags = 1 } (palette 256) [indices <> BS.pack [0x0f, 0xf0]]
+          on k = k < 4 || k >= 12
+      assertPixels (\k -> setAlpha (if on k then 255 else 0) (withoutAlphaPixel k)) bs
+  , testCase "4-bit alpha, low nibble first (#25)" $ do
+      let nibbles = BS.pack [fromIntegral (2 * j) + 16 * fromIntegral (2 * j + 1) | j <- [0 .. 7 :: Int]]
+          bs = uncompressed defHeader { hFlags = 4 } (palette 256) [indices <> nibbles]
+      assertPixels (\k -> setAlpha (k * 17) (withoutAlphaPixel k)) bs
+  , testCase "invalid alphaBits counts as no alpha (#25)" $
+      assertPixels withoutAlphaPixel $ uncompressed defHeader { hFlags = 3 } (palette 256) [indices <> alphaPlane]
   , testCase "without alpha, picture type 5" $ assertPixels withoutAlphaPixel withoutAlphaFile
   , testCase "without alpha ignores the palette's fourth byte (#14)" $
       assertPixels withoutAlphaPixel $ uncompressed defHeader { hFlags = 0, hPictureType = 5 }
@@ -128,10 +145,6 @@ malformedTests = testGroup "malformed input"
       assertLeft "BLP1" . decodeBlp $ "BLP2" <> BS.drop 4 (withAlphaFile 4)
   , testCase "unknown compression" $
       assertLeft "compression" . decodeBlp $ uncompressed defHeader { hCompression = 7 } (palette 256) [indices]
-  , testCase "unknown picture type" $
-      assertLeft "picture type" . decodeBlp $ withAlphaFile 9
-  , testCase "uncompressed file with JPEG picture type" $
-      assertLeft "JPEG type" . decodeBlp $ withAlphaFile 2
   , testCase "truncated header" $
       assertLeft "" . decodeBlp $ BS.take 100 (withAlphaFile 4)
   , testCase "empty input" $
@@ -179,6 +192,9 @@ jpegTests = testGroup "jpeg"
   , testCase "all three mip levels decode" $ do
       levels <- decodeLevels jpegFile
       sizes levels @?= [(16, 16), (8, 8), (4, 4)]
+  , testCase "JPEG with alphaBits 0 decodes opaque (#25)" $ do
+      img <- decodeRGBA (setDword 8 0 jpegFile)
+      assertBool "every pixel opaque" $ all (\(PixelRGBA8 _ _ _ a) -> a == 255) (pixelsOf img)
   , testCase "picture type 6 decodes like the original (#5)" $ do
       orig <- decodeRGBA jpegFile
       img <- decodeRGBA (setDword pictureTypeOffset 6 jpegFile)
@@ -329,3 +345,6 @@ fileTests = testGroup "files"
 
 w16 :: Word8 -> Word16
 w16 v = fromIntegral v * 257
+
+setAlpha :: Word8 -> PixelRGBA8 -> PixelRGBA8
+setAlpha a (PixelRGBA8 r g b _) = PixelRGBA8 r g b a

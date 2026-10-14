@@ -19,7 +19,6 @@ import Codec.Picture.ColorQuant
 import Codec.Picture.Jpg
 import Codec.Picture.Types
 import Data.Binary.Put
-import Data.Bits
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Foldable (traverse_)
 import Data.Word
@@ -44,11 +43,11 @@ blpEncoder :: Int -> BlpStruct -> Put
 blpEncoder requestedMips BlpStruct{..} = do
   putBlpVersion
   putCompression
-  putFlags
-  putWidth
-  putHeight
-  putPictureType
-  putPictureSubType
+  putWord32le blpAlphaBits
+  putWord32le blpWidth
+  putWord32le blpHeight
+  putWord32le blpExtra
+  putWord32le blpHasMipmaps
   putMipMapOffsets
   putMipMapSizes
   putBlpExt
@@ -59,25 +58,13 @@ blpEncoder requestedMips BlpStruct{..} = do
     putCompression = putWord32le $ case blpCompression of
       BlpCompressionJPEG -> 0
       BlpCompressionUncompressed -> 1
-    putFlags = let
-      addFlag acc flag = (acc +) $ case flag of
-         BlpFlagAlphaChannel -> 1 `shiftL` 3
-      in putWord32le $ F.foldl' addFlag 0 blpFlags
-    putWidth = putWord32le blpWidth
-    putHeight = putWord32le blpHeight
-    putPictureType = putWord32le $ case blpPictureType of
-      JPEGType -> 2
-      UncompressedWithAlpha -> 3
-      -- UncompressedWithAlpha -> 4
-      UncompressedWithoutAlpha -> 5
-    putPictureSubType = putWord32le blpPictureSubType
     headerSize = 4 -- BLP1
       + 4 -- Compression
-      + 4 -- Flags
+      + 4 -- Alpha bits
       + 4 -- Width
       + 4 -- Height
-      + 4 -- Picture type
-      + 4 -- Picture subtype
+      + 4 -- Extra
+      + 4 -- Has mipmaps
       + 16 * 4 -- Mipmaps offsets
       + 16 * 4 -- Mipmaps sizes
     mipmaps = let
@@ -88,10 +75,7 @@ blpEncoder requestedMips BlpStruct{..} = do
         BlpJpeg{..} -> let
           startOffset = headerSize + 4 + BS.length blpJpegHeader
           in F.foldr' mkOffsetSize (startOffset, []) $ reverse blpJpegData
-        BlpUncompressed1{..} -> let
-          mkOffsetSizeU (indbs, alpbs) (!offset, !acc) = (offset + BS.length indbs + BS.length alpbs, (fromIntegral offset, fromIntegral $ BS.length indbs + BS.length alpbs) : acc)
-          in F.foldr' mkOffsetSizeU (uncomprStartOffset, []) $ reverse blpU1MipMaps
-        BlpUncompressed2{..} -> F.foldr' mkOffsetSize (uncomprStartOffset, []) $ reverse blpU2MipMaps
+        BlpPaletted{..} -> F.foldr' mkOffsetSize (uncomprStartOffset, []) $ reverse blpPalettedMipMaps
     ensureLength _ [] = []
     ensureLength n xs = if length xs < n
       then xs ++ replicate (n - length xs) (last xs)
@@ -105,12 +89,9 @@ blpEncoder requestedMips BlpStruct{..} = do
          putWord32le $ fromIntegral $ BS.length blpJpegHeader
          putByteString blpJpegHeader
          traverse_ putByteString $ take numMips blpJpegData
-       BlpUncompressed1{..} -> do
-         traverse_ putRgba8 . ensureLengthV 256 (PixelRGBA8 0 0 0 0) $ blpU1Palette
-         traverse_ (\(indbs, alpbs) -> putByteString indbs >> putByteString alpbs) $ take numMips blpU1MipMaps
-       BlpUncompressed2{..} -> do
-         traverse_ putRgba8 . ensureLengthV 256 (PixelRGBA8 0 0 0 0) $ blpU2Palette
-         traverse_ putByteString $ take numMips blpU2MipMaps
+       BlpPaletted{..} -> do
+         traverse_ putRgba8 . ensureLengthV 256 (PixelRGBA8 0 0 0 0) $ blpPalette
+         traverse_ putByteString $ take numMips blpPalettedMipMaps
 
 -- | Return 'True' if given picture format has alpha channel
 hasAlpha :: DynamicImage -> Bool
@@ -127,19 +108,17 @@ hasAlpha img = case img of
 toBlpStruct :: BlpCompression -> Int -> Int -> DynamicImage -> BlpStruct
 toBlpStruct compression quality numMips img = BlpStruct {
     blpCompression = compression
-  , blpFlags = if hasAlpha img
-      then [BlpFlagAlphaChannel]
-      else []
+  , blpAlphaBits = if alpha then 8 else 0
   , blpWidth = fromIntegral $ dynamicMap imageWidth img
   , blpHeight = fromIntegral $ dynamicMap imageHeight img
-  , blpPictureType = pictype
-  , blpPictureSubType = 5 -- world edit use this for war3mapMap.blp
-  , blpExt = toBlpExt compression pictype quality numMips img'
+  -- Readers that follow the old description of the format pick alpha by
+  -- this field (3 or 4 with alpha, 5 without), so keep it consistent.
+  , blpExtra = if alpha then 3 else 5
+  , blpHasMipmaps = 5 -- WorldEdit writes this for war3mapMap.blp
+  , blpExt = toBlpExt compression alpha quality numMips img'
   }
   where
-    pictype = if hasAlpha img
-      then UncompressedWithAlpha
-      else UncompressedWithoutAlpha
+    alpha = hasAlpha img
     img' = convertRGBA8 img
 
 -- | Take only first N mipmaps in list, fill rest with last non-fake mipmap
@@ -192,17 +171,10 @@ createMipMapsIndexed img = img : go img
          | otherwise = let i' = power2Scale i in i' : go i'
 
 -- | Convert picture to BLP payload
-toBlpExt :: BlpCompression -> BlpPictureType -> Int -> Int -> Image PixelRGBA8 -> BlpExt
-toBlpExt compr pictype quality numMips img = case compr of
+toBlpExt :: BlpCompression -> Bool -> Int -> Int -> Image PixelRGBA8 -> BlpExt
+toBlpExt compr keepAlpha quality numMips img = case compr of
   BlpCompressionJPEG -> toBlpJpg (fromIntegral quality) numMips keepAlpha img
-  BlpCompressionUncompressed -> case pictype of
-    UncompressedWithAlpha -> toBlpUncompressed1 numMips img
-    UncompressedWithoutAlpha -> toBlpUncompressed2 numMips img
-    JPEGType -> toBlpUncompressed2 numMips img -- Consider this as without alpha
-  where
-    keepAlpha = case pictype of
-      UncompressedWithAlpha -> True
-      _ -> False
+  BlpCompressionUncompressed -> toBlpPaletted keepAlpha numMips img
 
 -- | Convert picture to BLP JPEG and create mipmaps
 toBlpJpg :: Word8 -> Int -> Bool -> Image PixelRGBA8 -> BlpExt
@@ -258,36 +230,22 @@ convertIndexed img = let
   -- Shares the image buffer without copying; the ByteString keeps it alive.
   in BI.fromForeignPtr fptr 0 l
 
--- | Convert picture to BLP uncompressed with alpha and create mipmaps
-toBlpUncompressed1 :: Int -> Image PixelRGBA8 -> BlpExt
-toBlpUncompressed1 numMips img =  BlpUncompressed1 {
-    blpU1Palette = convertPalette palette
-  , blpU1MipMaps = fmap convertIndexed mipmaps `zip` fmap convertIndexed alphaMaps
+-- | Quantise a picture to a 256 colour palette and create mipmaps, with an
+-- 8-bit alpha list after each index list when asked to keep alpha.
+toBlpPaletted :: Bool -> Int -> Image PixelRGBA8 -> BlpExt
+toBlpPaletted keepAlpha numMips img = BlpPaletted {
+    blpPalette = convertPalette palette
+  , blpPalettedMipMaps = if keepAlpha
+      then zipWith (<>) (convertIndexed <$> mipmaps) (convertIndexed <$> alphaMaps)
+      else convertIndexed <$> mipmaps
   }
   where
     img'    :: Image Pixel8
     palette :: Palette
     (img', palette) = makePallette img
-
-    alphaImg :: Image Pixel8
-    alphaImg = extractComponent PlaneAlpha img
 
     mipmaps :: [Image Pixel8]
     mipmaps = fakeMipMaps numMips $ createMipMapsIndexed img'
 
     alphaMaps :: [Image Pixel8]
-    alphaMaps = fakeMipMaps numMips $ createMipMapsIndexed alphaImg
-
--- | Convert picture to BLP uncompressed without alpha and create mipmaps
-toBlpUncompressed2 :: Int -> Image PixelRGBA8 -> BlpExt
-toBlpUncompressed2 numMips img = BlpUncompressed2 {
-    blpU2Palette = convertPalette palette
-  , blpU2MipMaps = convertIndexed <$> mipmaps
-  }
-  where
-    img'    :: Image Pixel8
-    palette :: Palette
-    (img', palette) = makePallette img
-
-    mipmaps :: [Image Pixel8]
-    mipmaps = fakeMipMaps numMips $ createMipMapsIndexed img'
+    alphaMaps = fakeMipMaps numMips $ createMipMapsIndexed (extractComponent PlaneAlpha img)

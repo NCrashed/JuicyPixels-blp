@@ -17,7 +17,7 @@ import qualified Data.List as L
 
 import File 
 
-type BlpInfo = (BlpCompression, [BlpFlag], BlpPictureType, Word32)
+type BlpInfo = (BlpCompression, Word32, Word32, Word32)
 type BlpStat = (FilePath, Int)
 
 type StatMap = M.Map BlpInfo BlpStat
@@ -37,7 +37,7 @@ collectSample stats inputFile = do
     Right blp -> return $ adjust' (updateStat inputFile) (blpType blp) stats
 
 blpType :: BlpStruct -> BlpInfo 
-blpType BlpStruct{..} = (blpCompression, blpFlags, blpPictureType, blpPictureSubType)
+blpType BlpStruct{..} = (blpCompression, blpAlphaBits, blpExtra, blpHasMipmaps)
 
 adjust' :: (Maybe BlpStat -> BlpStat) -> BlpInfo -> StatMap -> StatMap 
 adjust' f k m = M.insert k (f $ M.lookup k m) m
@@ -49,8 +49,8 @@ updateStat _ (Just (p, i)) = (p, i+1)
 printStatistics :: FilePath -> StatMap -> IO () 
 printStatistics dir stats = do
     createDirectoryIfMissing True dir
-    forM_ (M.toList stats) $ \((compression, flags, pictureType, pictureSubType), (path, i)) -> do 
-      let postfix = L.intercalate "-" [show compression, show flags, show pictureType, show pictureSubType]
+    forM_ (M.toList stats) $ \((compression, alphaBits, extra, hasMipmaps), (path, i)) -> do 
+      let postfix = L.intercalate "-" [show compression, "alpha" ++ show alphaBits, "extra" ++ show extra, "mips" ++ show hasMipmaps]
       copyFile path $ dir ++ "/" ++ dropExtension (takeFileName path) ++ "-"
         ++ postfix ++ ".blp"
       putStrLn $ postfix ++ ": " ++ show i ++ " images"

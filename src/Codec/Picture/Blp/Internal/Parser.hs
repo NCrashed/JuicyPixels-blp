@@ -10,13 +10,10 @@ module Codec.Picture.Blp.Internal.Parser(
   , blpVersion
   , dword
   , compressionParser
-  , flagsParser
-  , pictureTypeParser
   , blpJpegParser
   , getPos
   , skipToOffset
-  , blpUncompressed1Parser
-  , blpUncompressed2Parser
+  , blpPalettedParser
   , parseBlp
   ) where
 
@@ -40,11 +37,11 @@ blpParser :: Int -> Parser BlpStruct
 blpParser inputLen = do
   _ <- blpVersion
   blpCompression <- compressionParser
-  blpFlags <- flagsParser
+  blpAlphaBits <- dword <?> "alpha bits"
   blpWidth <- dword <?> "width"
   blpHeight <- dword <?> "height"
-  blpPictureType <- pictureTypeParser
-  blpPictureSubType <- dword <?> "picture subtype"
+  blpExtra <- dword <?> "extra"
+  blpHasMipmaps <- dword <?> "has mipmaps"
   blpMipMapOffset <- replicateM 16 dword <?> "mipmaps offsets"
   blpMipMapSize <- replicateM 16 dword <?> "mipmaps sizes"
   -- BLP1 specifies 16 mipmap slots but most files only use a handful; the
@@ -71,31 +68,9 @@ blpParser inputLen = do
         | otherwise = dropOverlapping end rest
       mipMapsInfo =
         dropOverlapping 0 . sortOn fst . filter fitsInput $ rawMipMapsInfo
-  -- Some writing tools set `pictureType` to `UncompressedWithAlpha` on
-  -- files whose mipmap 0 is actually only large enough for a single
-  -- index plane (w*h bytes) rather than indices + alpha (2*w*h bytes).
-  -- Trust the physical size over the picture-type byte and decode those
-  -- files via the without-alpha path instead of crashing on a half-read
-  -- index list. Anything short of 2*w*h cannot hold both planes, so the
-  -- check is a range rather than an exact match.
-  let pixels0 :: Integer
-      pixels0 = fromIntegral blpWidth * fromIntegral blpHeight
-      mipZeroSize = case mipMapsInfo of
-        ((_, s):_) -> fromIntegral s :: Integer
-        []         -> 0
-      mislabeledAsAlpha =
-        blpPictureType == UncompressedWithAlpha &&
-        pixels0 > 0 &&
-        mipZeroSize >= pixels0 &&
-        mipZeroSize < 2 * pixels0
-      effectivePictureType =
-        if mislabeledAsAlpha then UncompressedWithoutAlpha else blpPictureType
   blpExt <- case blpCompression of
     BlpCompressionJPEG -> blpJpegParser mipMapsInfo
-    BlpCompressionUncompressed -> case effectivePictureType of
-      JPEGType -> fail "JPEG type with Uncompressed type mix"
-      UncompressedWithAlpha -> blpUncompressed1Parser mipMapsInfo
-      UncompressedWithoutAlpha -> blpUncompressed2Parser mipMapsInfo
+    BlpCompressionUncompressed -> blpPalettedParser mipMapsInfo
 
   return $ BlpStruct {..}
 
@@ -122,34 +97,6 @@ compressionParser = (<?> "compression") $ do
     0 -> return BlpCompressionJPEG
     1 -> return BlpCompressionUncompressed
     _ -> fail $ "Unknown compression " ++ show i
-
--- | Header dword @0x08@ (@alphaBits@). Only the value 8 is recognised.
-flagsParser :: Parser [BlpFlag]
-flagsParser = (<?> "flags") $ do
-  i <- dword
-  return $ if i `testBit` 3
-    then [BlpFlagAlphaChannel]
-    else []
-
--- | Header dword @0x14@ (@extra@), read as a picture type. Unknown values
--- fail the parse.
-pictureTypeParser :: Parser BlpPictureType
-pictureTypeParser = (<?> "picture type") $ do
-  i <- dword
-  case i of
-    0 -> return UncompressedWithAlpha
-    2 -> return JPEGType
-    3 -> return UncompressedWithAlpha
-    4 -> return UncompressedWithAlpha
-    5 -> return UncompressedWithoutAlpha
-    -- BLP1 files seen in the wild (notably from World of Warcraft assets,
-    -- as well as some BLPs found inside Warcraft III maps) use picture type
-    -- 6 for JPEG-compressed textures with an alpha channel. The actual data
-    -- layout is identical to type 2, and the dispatch in `blpParser` already
-    -- decides JPEG vs uncompressed based on the `compression` field, so we
-    -- can safely treat 6 as another spelling of `JPEGType`.
-    6 -> return JPEGType
-    _ -> fail $ "Unknown picture type " ++ show i
 
 -- | JPEG content: the shared header, then each mip level at its slot.
 blpJpegParser :: [(Word32, Word32)] -> Parser BlpExt
@@ -192,28 +139,16 @@ paletteParser mps = do
   entries <- V.replicateM nEntries rgba8
   return $ entries V.++ V.replicate (256 - nEntries) (PixelRGBA8 0 0 0 0)
 
--- | Paletted content with 8-bit alpha: palette, then index and alpha list
--- of each mip level, each half of the slot.
-blpUncompressed1Parser :: [(Word32, Word32)] -> Parser BlpExt
-blpUncompressed1Parser mps = do
-  blpU1Palette <- paletteParser mps
-  blpU1MipMaps <- forM mps $ \(offset, size) -> do
+-- | Paletted content: the palette, then the raw data of each mip level.
+-- Splitting a level into index and alpha lists needs its size, which is
+-- left to the decoder.
+blpPalettedParser :: [(Word32, Word32)] -> Parser BlpExt
+blpPalettedParser mps = do
+  blpPalette <- paletteParser mps
+  blpPalettedMipMaps <- forM mps $ \(offset, size) -> do
     skipToOffset offset
-    let halfSize = fromIntegral size `div` 2
-    indexList <- AT.take halfSize <?> "index list"
-    alphaList <- AT.take halfSize <?> "alpha list"
-    return (indexList, alphaList)
-  return $ BlpUncompressed1 {..}
-
--- | Paletted content without alpha: palette, then the index list of each
--- mip level.
-blpUncompressed2Parser :: [(Word32, Word32)] -> Parser BlpExt
-blpUncompressed2Parser mps = do
-  blpU2Palette <- paletteParser mps
-  blpU2MipMaps <- forM mps $ \(offset, size) -> do
-    skipToOffset offset
-    AT.take (fromIntegral size) <?> "index list"
-  return $ BlpUncompressed2 {..}
+    AT.take (fromIntegral size) <?> "mipmap data"
+  return $ BlpPaletted {..}
 
 -- | Parse a BLP1 file into its header and raw content.
 parseBlp :: ByteString -> Either String BlpStruct

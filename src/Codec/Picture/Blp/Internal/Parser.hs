@@ -62,9 +62,28 @@ blpParser inputLen = do
         | otherwise = dropOverlapping end rest
       mipMapsInfo =
         dropOverlapping 0 . sortOn fst . filter fitsInput $ rawMipMapsInfo
+  -- Some writing tools set `pictureType` to `UncompressedWithAlpha` on
+  -- files whose mipmap 0 is actually only large enough for a single
+  -- index plane (w*h bytes) rather than indices + alpha (2*w*h bytes).
+  -- Trust the physical size over the picture-type byte and decode those
+  -- files via the without-alpha path instead of crashing on a half-read
+  -- index list. Anything short of 2*w*h cannot hold both planes, so the
+  -- check is a range rather than an exact match.
+  let pixels0 :: Integer
+      pixels0 = fromIntegral blpWidth * fromIntegral blpHeight
+      mipZeroSize = case mipMapsInfo of
+        ((_, s):_) -> fromIntegral s :: Integer
+        []         -> 0
+      mislabeledAsAlpha =
+        blpPictureType == UncompressedWithAlpha &&
+        pixels0 > 0 &&
+        mipZeroSize >= pixels0 &&
+        mipZeroSize < 2 * pixels0
+      effectivePictureType =
+        if mislabeledAsAlpha then UncompressedWithoutAlpha else blpPictureType
   blpExt <- case blpCompression of
     BlpCompressionJPEG -> blpJpegParser mipMapsInfo
-    BlpCompressionUncompressed -> case blpPictureType of
+    BlpCompressionUncompressed -> case effectivePictureType of
       JPEGType -> fail "JPEG type with Uncompressed type mix"
       UncompressedWithAlpha -> blpUncompressed1Parser mipMapsInfo
       UncompressedWithoutAlpha -> blpUncompressed2Parser mipMapsInfo

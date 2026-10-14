@@ -26,7 +26,7 @@ blpFormatR = readMPure "blp format" readBlpFormat
 main :: IO ()
 main = do
   (_,runCmd) <- simpleOptions ver headerDesc desc (pure ()) $ do
-    addCommand "convert" "Converts given blp or folder with blps to PNG" convertFiles $ (<*>) helper $ ConvertOptions
+    addCommand "convert" "Converts a file or a folder between BLP and PNG, JPEG, TIFF, GIF or BMP" convertFiles $ ConvertOptions
       <$> strArgument (metavar "INPUT_PATH" <> help "input file or directory (batch mode)")
       <*> strArgument (metavar "OUTPUT_PATH" <> help "output file name or directory (need explicit format option)")
       <*> option convertFormatR (long "input-format" <> short 'i' <> value UnspecifiedFormat <> help "Input file format, if not specified tries to infer from input file name. Values: blp png jpg tiff gif bmp.")
@@ -35,12 +35,12 @@ main = do
       <*> fmap not (switch (long "notPreserveStructure" <> short 'p' <> help "Will not produce subfolders while batch converting" ))
       <*> switch (long "shallow" <> short 's' <> help "Not look into subfolders while batch converting")
       <*> option blpFormatR (long "blpFormat" <> short 'b' <> value BlpJpeg <> help "Specifies what BLP internal format to use when converting to BLP. Values: jpg uncompressedWithAlpha uncompressedWithoutAlpha")
-      <*> option auto (long "min-mipmap-size" <> value 1 <> help "Minimum size of mimmap side to include in resulted BLP file")
-    addCommand "stats" "Collects statistics about BLP images in folder and saves examples of BLP's for each sample" (uncurry collectStatistics) $ (<*>) helper $ (,)
+      <*> option auto (long "min-mipmap-size" <> value 1 <> help "Smallest mipmap side to keep when writing BLP (default 1)")
+    addCommand "stats" "Groups the BLPs in a folder by header values and saves one example of each group" (uncurry collectStatistics) $ (,)
       <$> strArgument (metavar "DIRECTORY" <> help "Input folder that stores blps (subfolders are processed)")
       <*> strArgument (metavar "OUTPUT_PATH" <> help "Here blp samples would be stored")
   runCmd
   where
     ver = "0.1.0.0"
     headerDesc = ""
-    desc = "Converting BLP1 Warcraft III format to/from PNG, JPEG, TGA, TIFF, BMP, GIF"
+    desc = "Converting BLP1 Warcraft III textures to/from PNG, JPEG, TIFF, GIF and BMP"

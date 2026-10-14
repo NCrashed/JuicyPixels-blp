@@ -1,3 +1,12 @@
+Unreleased
+==========
+
+Documentation: a description of the BLP1 format and of what the library
+supports (`docs/format.md`), a rewritten README with usage, `blp2any` and
+limitations, haddock for every module, and corrected `blp2any` help.
+The old `Specification` file is gone; it described several header fields
+and the palette alpha wrongly.
+
 0.3.0.0 (2026-10-15)
 ====================
 

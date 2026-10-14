@@ -79,12 +79,15 @@ are stored but skipped.
 
 **Encoder.**
 
-- It writes as many levels as asked for, and always at least mip 0.
-- It stops early when *either* side reaches one pixel, so 32×8 ends at 4×1
+- It writes as many levels as asked for, at least mip 0 and at most the full
+  chain down to 1×1. Downscaling averages 2×2 blocks of colour and alpha,
+  reusing the edge pixel on odd or one-pixel sides, and takes the top-left
+  pixel for palette indices
   ([#26](https://github.com/NCrashed/JuicyPixels-blp/issues/26)).
-- `mipMapsUpTo` computes a level count from a minimum side length.
-- `blp2any --min-mipmap-size N` with `N > 1` therefore writes a deliberately
-  short chain. That is fine for interface images, but risky for model
+- `mipMapsUpTo` counts the levels whose larger side is at least a minimum;
+  with 1 that is the full chain.
+- `blp2any --min-mipmap-size N` with `N > 1` writes a deliberately short
+  chain. That is fine for interface images, but risky for model
   textures, for the reason above.
 
 ## JPEG content (`content = 0`)

@@ -15,6 +15,11 @@ from the `extra` field (#25). Paletted files with 1-bit and 4-bit alpha now
 decode, files whose `extra` field says otherwise keep their alpha, and
 unknown `extra` values are no longer rejected. Encoder output is unchanged.
 
+The encoder writes the full mip chain down to 1x1 for non-square textures
+instead of stopping when the shorter side reaches one pixel (#26), and
+`mipMapsUpTo` counts levels by the larger side, so `blp2any`'s default
+keeps every level.
+
 Documentation: a description of the BLP1 format and of what the library
 supports (`docs/format.md`), a rewritten README with usage, `blp2any` and
 limitations, haddock for every module, and corrected `blp2any` help.

@@ -66,10 +66,6 @@ minor versions.
 - **BLP0 and BLP2.** Only BLP1 is supported. BLP0 keeps mipmaps in separate
   `.b00`–`.b15` files; BLP2 is the World of Warcraft variant
   ([#3](https://github.com/NCrashed/JuicyPixels-blp/issues/3)).
-- **Incomplete mip chain.** The encoder stops the mip chain when either side
-  reaches 1 pixel, for example at 4×1 for a 32×8 texture, instead of going on
-  to 1×1 ([#26](https://github.com/NCrashed/JuicyPixels-blp/issues/26)).
-  Warcraft III draws missing levels as transparent black.
 - **Lossy palette.** Uncompressed encoding quantises to 256 colours with
   dithering, so it is lossy for images with more colours.
 - **Fixed header values.** The encoder always writes `extra` and
@@ -92,8 +88,9 @@ blp2any stats DIRECTORY OUTPUT_PATH
     subdirectories unless `-p` is given.
   - When writing BLP, `-b` picks the internal format (JPEG by default) and
     `--min-mipmap-size` the smallest mip level to keep. The default is 1,
-    which keeps every level. A larger value leaves textures without their
-    smallest levels, which is only safe for interface images.
+    which writes every level down to 1×1. A larger value leaves textures
+    without their smallest levels; Warcraft III draws missing levels as
+    transparent black, so this is only safe for interface images.
 - **`stats`** groups the BLP files in a directory by their header values
   and copies one example of each group to `OUTPUT_PATH`. It helps when
   hunting for unusual files.

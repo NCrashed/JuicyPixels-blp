@@ -139,35 +139,38 @@ fakeMipMaps = go Nothing
 
 -- | Scale image to form the sequence of mipmaps. The first element is always the original picture.
 --
--- The scale procedure assumes that original image has power of 2 sides, that allows to simply pick
--- average of 4 pixels.
+-- Each level averages 2x2 blocks; on an odd or one-pixel side the last block
+-- reuses the edge pixel.
 createMipMaps :: Image PixelRGBA8 -> [Image PixelRGBA8]
 createMipMaps img = img : go img
   where
     avg' v1 v2 v3 v4 = let
       v = fromIntegral v1 + fromIntegral v2 + fromIntegral v3 + fromIntegral v4 :: Double
       in round $ v / 4
+    -- On a side that is already one pixel (or odd) the second sample is
+    -- clamped to the edge, so the chain can go on to 1x1.
     avg i x y = let
+      x1 = min (imageWidth i - 1) (x*2 + 1)
+      y1 = min (imageHeight i - 1) (y*2 + 1)
       PixelRGBA8 p00r p00g p00b p00a = pixelAt i (x*2) (y*2)
-      PixelRGBA8 p10r p10g p10b p10a = pixelAt i (x*2 + 1) (y*2)
-      PixelRGBA8 p01r p01g p01b p01a = pixelAt i (x*2) (y*2 + 1)
-      PixelRGBA8 p11r p11g p11b p11a = pixelAt i (x*2 + 1) (y*2 + 1)
+      PixelRGBA8 p10r p10g p10b p10a = pixelAt i x1 (y*2)
+      PixelRGBA8 p01r p01g p01b p01a = pixelAt i (x*2) y1
+      PixelRGBA8 p11r p11g p11b p11a = pixelAt i x1 y1
       in PixelRGBA8 (avg' p00r p10r p01r p11r) (avg' p00g p10g p01g p11g) (avg' p00b p10b p01b p11b) (avg' p00a p10a p01a p11a)
     power2Scale i = generateImage (avg i) (downgrade $ imageWidth i) (downgrade $ imageHeight i)
     downgrade v = max 1 $ v `div` 2
-    go i | imageWidth i <= 1 || imageHeight i <= 1 = []
+    go i | imageWidth i <= 1 && imageHeight i <= 1 = []
          | otherwise = let i' = power2Scale i in i' : go i'
 
--- | Scale image to form the sequence of mipmaps. The first element is always the original picture.
---
--- The scale procedure assumes that original image has power of 2 sides, that allows to simply pick
--- 1 of 4 pixels.
+-- | Scale image to form the sequence of mipmaps, down to 1x1. The first
+-- element is always the original picture. Each level takes the top-left pixel
+-- of every 2x2 block, as averaging palette indices makes no sense.
 createMipMapsIndexed :: Pixel a => Image a -> [Image a]
 createMipMapsIndexed img = img : go img
   where
     power2Scale i = generateImage (\x y -> pixelAt i (x*2) (y*2)) (downgrade $ imageWidth i) (downgrade $ imageHeight i)
     downgrade v = max 1 $ v `div` 2
-    go i | imageWidth i <= 1 || imageHeight i <= 1 = []
+    go i | imageWidth i <= 1 && imageHeight i <= 1 = []
          | otherwise = let i' = power2Scale i in i' : go i'
 
 -- | Convert picture to BLP payload

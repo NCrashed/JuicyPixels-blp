@@ -23,8 +23,7 @@ module Codec.Picture.Blp(
   -- * Encoding
   -- | The mipmap count passed to the encoders is the number of levels to
   -- write, mip 0 included. It is clamped to at least one, and asking for
-  -- more levels than the image has stops at the level where a side reaches
-  -- one pixel. 'mipMapsUpTo' computes it from a minimum side length.
+  -- more levels than the image has stops at 1x1. 'mipMapsUpTo' computes it from a minimum side length.
   , writeBlpJpeg
   , writeBlpUncompressedWithAlpha
   , writeBlpUncompressedWithoutAlpha
@@ -148,16 +147,16 @@ palettedLevels width height alphaBits palette mips
       1 -> 255 * ((alphas `BS.index` (i `div` 8) `shiftR` (i `mod` 8)) .&. 1)
       _ -> 255
 
--- | Number of mip levels, mip 0 included, whose smaller side is at least the
+-- | Number of mip levels, mip 0 included, whose larger side is at least the
 -- given length; never less than one. Pass it to the encoders as the mipmap
--- count. A 16x16 texture has five levels down to 1 pixel and three down to
--- 4 pixels.
+-- count. With 1 that is the full chain down to 1x1: five levels for 16x16,
+-- seven for 64x16. With 4, a 16x16 texture keeps three levels.
 mipMapsUpTo :: Int -- ^ Smallest side length to keep (2, 4, 16, ...)
   -> DynamicImage -- ^ Image the mipmaps are made for
   -> Int
-mipMapsUpTo minSize img = max 1 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) minSide
+mipMapsUpTo minSize img = max 1 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) maxSide
   where
-    minSide = min (dynamicMap imageWidth img) (dynamicMap imageHeight img)
+    maxSide = max (dynamicMap imageWidth img) (dynamicMap imageHeight img)
 
 -- | Encode with 'encodeBlpJpeg' and write the result to a file.
 writeBlpJpeg :: FilePath -> Int -> Int -> DynamicImage -> IO ()

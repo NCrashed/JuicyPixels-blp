@@ -1,3 +1,9 @@
+{-|
+Building and serialising BLP1 files: palette quantisation, the mip chain, the
+shared JPEG header and the binary layout.
+
+This is an internal module: its API may change between minor versions.
+-}
 module Codec.Picture.Blp.Internal.Encoder(
     encodeBlp
   , blpEncoder
@@ -28,7 +34,8 @@ import qualified Data.Vector.Storable as VS
 import Codec.Picture.Blp.Internal.Convert
 import Codec.Picture.Blp.Internal.Data
 
--- | Convert spare BLP structure into compact stream of bytes
+-- | Serialise a BLP structure, writing the given number of mip levels (at
+-- least one).
 encodeBlp :: Int -> BlpStruct -> ByteString
 encodeBlp numMips = runPut . blpEncoder numMips
 
@@ -114,7 +121,9 @@ hasAlpha img = case img of
   ImageRGBA16 _ -> True
   _ -> False
 
--- | Convert to BLP structure some image with given BLP options and quality (for JPEG compression)
+-- | Build the BLP structure for an image: content type, JPEG quality (ignored
+-- for paletted content) and number of mip levels. Alpha follows the image
+-- format.
 toBlpStruct :: BlpCompression -> Int -> Int -> DynamicImage -> BlpStruct
 toBlpStruct compression quality numMips img = BlpStruct {
     blpCompression = compression

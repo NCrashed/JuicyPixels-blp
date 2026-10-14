@@ -1,3 +1,10 @@
+{-|
+Attoparsec parser for BLP1 files. It handles the header, the mipmap slot
+table and the raw content; turning the content into images is done in
+"Codec.Picture.Blp".
+
+This is an internal module: its API may change between minor versions.
+-}
 module Codec.Picture.Blp.Internal.Parser(
     blpParser
   , blpVersion
@@ -27,6 +34,8 @@ import qualified Data.ByteString as BS
 
 import Codec.Picture.Blp.Internal.Data
 
+-- | Parser for a whole BLP1 file. The argument is the length of the input,
+-- used to drop mipmap slots that point past its end.
 blpParser :: Int -> Parser BlpStruct
 blpParser inputLen = do
   _ <- blpVersion
@@ -90,9 +99,11 @@ blpParser inputLen = do
 
   return $ BlpStruct {..}
 
+-- | The @BLP1@ magic. BLP0 and BLP2 files fail here.
 blpVersion :: Parser ByteString
 blpVersion = string "BLP1" <?> "BLP1 version tag"
 
+-- | A little-endian 32-bit word.
 dword :: Parser Word32
 dword = do
   bs <- AT.take 4
@@ -103,6 +114,7 @@ dword = do
 rgba8 :: Parser PixelRGBA8
 rgba8 = PixelRGBA8 <$> anyWord8 <*> anyWord8 <*> anyWord8 <*> anyWord8
 
+-- | Header dword @0x04@ (@content@): 0 is JPEG, 1 is paletted.
 compressionParser :: Parser BlpCompression
 compressionParser = (<?> "compression") $ do
   i <- dword
@@ -111,6 +123,7 @@ compressionParser = (<?> "compression") $ do
     1 -> return BlpCompressionUncompressed
     _ -> fail $ "Unknown compression " ++ show i
 
+-- | Header dword @0x08@ (@alphaBits@). Only the value 8 is recognised.
 flagsParser :: Parser [BlpFlag]
 flagsParser = (<?> "flags") $ do
   i <- dword
@@ -118,6 +131,8 @@ flagsParser = (<?> "flags") $ do
     then [BlpFlagAlphaChannel]
     else []
 
+-- | Header dword @0x14@ (@extra@), read as a picture type. Unknown values
+-- fail the parse.
 pictureTypeParser :: Parser BlpPictureType
 pictureTypeParser = (<?> "picture type") $ do
   i <- dword
@@ -136,6 +151,7 @@ pictureTypeParser = (<?> "picture type") $ do
     6 -> return JPEGType
     _ -> fail $ "Unknown picture type " ++ show i
 
+-- | JPEG content: the shared header, then each mip level at its slot.
 blpJpegParser :: [(Word32, Word32)] -> Parser BlpExt
 blpJpegParser mps = (<?> "blp jpeg") $ do
   headerSize <- dword <?> "jpeg header size"
@@ -145,9 +161,12 @@ blpJpegParser mps = (<?> "blp jpeg") $ do
     AT.take $ fromIntegral size
   return $ BlpJpeg {..}
 
+-- | Current offset into the input.
 getPos :: Parser Int
 getPos = AT.Parser $ \t pos more _ succ' -> succ' t pos more (AT.fromPos pos)
 
+-- | Skip forward to an offset. Offsets behind the current position are
+-- ignored, so this never moves backwards.
 skipToOffset :: Word32 -> Parser ()
 skipToOffset i = do
   pos <- getPos
@@ -173,6 +192,8 @@ paletteParser mps = do
   entries <- V.replicateM nEntries rgba8
   return $ entries V.++ V.replicate (256 - nEntries) (PixelRGBA8 0 0 0 0)
 
+-- | Paletted content with 8-bit alpha: palette, then index and alpha list
+-- of each mip level, each half of the slot.
 blpUncompressed1Parser :: [(Word32, Word32)] -> Parser BlpExt
 blpUncompressed1Parser mps = do
   blpU1Palette <- paletteParser mps
@@ -184,6 +205,8 @@ blpUncompressed1Parser mps = do
     return (indexList, alphaList)
   return $ BlpUncompressed1 {..}
 
+-- | Paletted content without alpha: palette, then the index list of each
+-- mip level.
 blpUncompressed2Parser :: [(Word32, Word32)] -> Parser BlpExt
 blpUncompressed2Parser mps = do
   blpU2Palette <- paletteParser mps
@@ -192,5 +215,6 @@ blpUncompressed2Parser mps = do
     AT.take (fromIntegral size) <?> "index list"
   return $ BlpUncompressed2 {..}
 
+-- | Parse a BLP1 file into its header and raw content.
 parseBlp :: ByteString -> Either String BlpStruct
 parseBlp bs = parseOnly (blpParser (BS.length bs)) bs

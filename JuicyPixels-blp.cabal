@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                JuicyPixels-blp
-version:             0.2.1.0
+version:             0.3.0.0
 synopsis:            BLP format decoder/encoder over JuicyPixels library
 description:
   The library provides decoding/encoding functions for BLP1 texture format of Warcraft III game.
@@ -43,9 +43,7 @@ library
     , attoparsec            >= 0.12   && < 0.15
     , binary                >= 0.8    && < 0.10
     , bytestring            >= 0.10   && < 0.13
-    , hashable              >= 1.2    && < 1.6
     , JuicyPixels           >= 3.2    && < 3.4
-    , text-show             >= 3.7    && < 3.12
     , vector                >= 0.10   && < 0.14
 
   default-extensions:
@@ -67,13 +65,12 @@ executable blp2any
   build-depends:
       base
     , bytestring
+    , containers            >= 0.6    && < 0.9
     , directory             >= 1.2    && < 1.4
     , filepath              >= 1.4    && < 1.6
     , JuicyPixels
     , JuicyPixels-blp
     , optparse-simple       >= 0.0.3  && < 0.2
-    , text-show
-    , unordered-containers  >= 0.2    && < 0.3
 
   default-extensions:
     RecordWildCards
@@ -88,6 +85,8 @@ test-suite spec
   build-depends:
       base
     , bytestring
+    , directory
+    , filepath
     , JuicyPixels
     , JuicyPixels-blp
     , tasty                 >= 1.4    && < 1.6

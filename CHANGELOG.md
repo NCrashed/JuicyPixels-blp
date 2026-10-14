@@ -1,5 +1,17 @@
-Unreleased
-==========
+0.3.0.0 (unreleased)
+====================
+
+Breaking changes:
+
+- `decodeBlp` and `decodeBlpMipmaps` always return `ImageRGBA8`. JPEG BLPs
+  whose stream is not four-component (greyscale, YCbCr) used to come back as
+  `ImageY8` or `ImageRGB8`.
+- Removed unused functions from `Codec.Picture.Blp.Internal.Convert`:
+  `toPngRepresentable` and `toBlpUncompressable`.
+- Removed the `TextShow` and `Hashable` instances from
+  `Codec.Picture.Blp.Internal.Data`, and with them the `text-show` and
+  `hashable` dependencies. `blp2any` no longer depends on
+  `unordered-containers`.
 
 Decoder robustness for BLP1 files found in the wild:
 

@@ -2,9 +2,13 @@ module Main(main) where
 
 import Codec.Picture
 import Codec.Picture.Blp
+import Codec.Picture.Types (convertImage)
+import Control.Exception (bracket_, try)
 import Data.ByteString (ByteString)
 import Data.List (isInfixOf)
 import Data.Word
+import System.Directory (getTemporaryDirectory, removeFile)
+import System.FilePath ((</>))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -19,6 +23,7 @@ main = defaultMain $ testGroup "JuicyPixels-blp"
   , malformedTests
   , jpegTests
   , encoderTests
+  , fileTests
   ]
 
 -- | 4x4 test texture: pixel (x, y) is palette index @y*4+x@.
@@ -177,6 +182,17 @@ jpegTests = testGroup "jpeg"
       sizes levels @?= [(16, 16), (8, 8)]
   , testCase "broken mip 0 fails the file" $
       assertLeft "" . decodeBlp $ setDword (sizeSlot 0) 12 jpegFile
+  , testCase "three-component JPEG decodes to RGBA" $ do
+      let rgb = generateImage (\x y -> PixelRGB8 (fromIntegral $ x * 16) (fromIntegral $ y * 16) 128) 16 16
+          jpeg = BSL.toStrict . encodeJpeg $ (convertImage rgb :: Image PixelYCbCr8)
+          bs = blpFile defHeader { hCompression = 0, hFlags = 0, hWidth = 16, hHeight = 16, hPictureType = 2 }
+            [(fromIntegral headerSize + 4, fromIntegral $ BS.length jpeg)] ("\0\0\0\0" <> jpeg)
+      dyn <- either (assertFailure . ("decodeBlp: " ++)) return $ decodeBlp bs
+      case dyn of
+        ImageRGBA8 img -> do
+          direct <- either (assertFailure . ("decodeJpeg: " ++)) (return . convertRGBA8) $ decodeJpeg jpeg
+          pixelsOf img @?= pixelsOf direct
+        _ -> assertFailure "expected ImageRGBA8"
   , testCase "semi-transparent texture round-trips through the encoder (#17)" $ do
       img <- decodeRGBA . BSL.toStrict $ encodeBlpJpeg 100 1 (ImageRGBA8 gradient)
       let d = maxDiff gradient img
@@ -234,3 +250,26 @@ encoderTests = testGroup "encoder"
       mipMapsUpTo 4 (img 16 16) @?= 2
       mipMapsUpTo 1 (img 64 16) @?= 4
   ]
+
+fileTests :: TestTree
+fileTests = testGroup "files"
+  [ testCase "write and read back each format" $ do
+      tmp <- getTemporaryDirectory
+      let path = tmp </> "juicypixels-blp-test.blp"
+          img = ImageRGBA8 opaqueGradient
+          check write = bracket_ (write path) (removeFile path) $ do
+            Right single <- readBlp path
+            let d = maxDiff opaqueGradient (convertRGBA8 single)
+            assertBool ("max channel difference " ++ show d) (d <= 8)
+            Right levels <- readBlpMipmaps path
+            sizes (map convertRGBA8 levels) @?= [(16, 16), (8, 8)]
+      check $ \p -> writeBlpJpeg p 100 2 img
+      check $ \p -> writeBlpUncompressedWithAlpha p 2 img
+      check $ \p -> writeBlpUncompressedWithoutAlpha p 2 (ImageRGB8 $ convertRGB8 img)
+  , testCase "missing file is an IO error" $ do
+      r <- tryIO $ readBlp "/nonexistent/juicypixels-blp.blp"
+      assertBool "readBlp should throw" (either (const True) (const False) r)
+  ]
+  where
+    tryIO :: IO a -> IO (Either IOError a)
+    tryIO = try

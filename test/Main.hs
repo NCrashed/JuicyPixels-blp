@@ -71,6 +71,9 @@ uncompressedTests = testGroup "uncompressed"
   , testCase "with alpha, picture type 3" $ assertPixels withAlphaPixel (withAlphaFile 3)
   , testCase "picture type 0 decodes as with alpha (#10)" $ assertPixels withAlphaPixel (withAlphaFile 0)
   , testCase "without alpha, picture type 5" $ assertPixels withoutAlphaPixel withoutAlphaFile
+  , testCase "without alpha ignores the palette's fourth byte (#14)" $
+      assertPixels withoutAlphaPixel $ uncompressed defHeader { hFlags = 0, hPictureType = 5 }
+        [(b, g, r, 255) | (b, g, r, _) <- palette 256] [indices]
   , testCase "labelled with alpha, mip 0 holds only indices (#8)" $
       assertPixels withoutAlphaPixel $ uncompressed defHeader (palette 256) [indices]
   , testCase "labelled with alpha, mip 0 between one and two planes (#8)" $
@@ -168,6 +171,11 @@ encoderTests = testGroup "encoder"
   , testCase "with alpha round-trips mip 0" $ do
       img <- decodeRGBA . BSL.toStrict $ encodeBlpUncompressedWithAlpha 1 (ImageRGBA8 gradient)
       let d = maxDiff gradient img
+      assertBool ("max channel difference " ++ show d) (d <= 8)
+  , testCase "without alpha round-trips mip 0 (#14)" $ do
+      let opaque = convertRGB8 (ImageRGBA8 opaqueGradient)
+      img <- decodeRGBA . BSL.toStrict $ encodeBlpUncompressedWithoutAlpha 1 (ImageRGB8 opaque)
+      let d = maxDiff opaqueGradient img
       assertBool ("max channel difference " ++ show d) (d <= 8)
   , testCase "mipMapsUpTo" $ do
       let img w h = ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 0 0 0 0) w h

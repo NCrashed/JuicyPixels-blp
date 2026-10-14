@@ -94,8 +94,10 @@ decodeBlpMipmaps bs = do
       makeIndex x y = y*(fromIntegral $ blpWidth blp)+x
       takeColor mip x y = palette $ mip `BS.index` makeIndex x y
       gen mip x y = let
-        PixelRGBA8 r g b a = takeColor mip x y
-        in PixelRGBA8 b g r (255 - a)
+        PixelRGBA8 r g b _ = takeColor mip x y
+        -- Without-alpha textures have no alpha to decode; the palette's fourth
+        -- byte is not alpha and tools fill it inconsistently.
+        in PixelRGBA8 b g r 255
 
 -- | Calculate needed count of mipmaps to cover sizes up to given minimum size (helper for 'writeBlp*' functions)
 mipMapsUpTo :: Int -- ^ Minimum size of picture side for generation of mipmap (ex. 2, 4, 16, 32, 64, 512, 1024 and etc)

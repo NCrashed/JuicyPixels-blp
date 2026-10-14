@@ -19,8 +19,6 @@ import Data.Monoid
 import Data.Word
 import TextShow.Debug.Trace
 
-import Data.Maybe (mapMaybe)
-
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Vector as V
@@ -58,11 +56,14 @@ decodeBlpMipmaps bs = do
           -- Mipmap 0 is the full-resolution image; single-image callers
           -- (`decodeBlp`) only ever take `head` of the result. Decoding it
           -- strictly means a failure here still fails the whole file as
-          -- before. Tail mipmaps are produced lazily by mapMaybe, so a
-          -- corrupt tail can no longer poison the main image via mapM's
-          -- short-circuit in Either.
+          -- before. Tail mipmaps are decoded lazily and the chain stops at the
+          -- first one that fails, so a corrupt tail can no longer poison the
+          -- main image, and the result stays a prefix of the mip levels
+          -- (index i is always level i).
           mip0 <- decodeJpeg j0
-          let lazyTail = mapMaybe (either (const Nothing) Just . decodeJpeg) js
+          let validPrefix (j:rest) | Right m <- decodeJpeg j = m : validPrefix rest
+              validPrefix _ = []
+              lazyTail = validPrefix js
               -- The alpha decision is taken once, from the full size mipmap, so that
               -- every mipmap of a texture is decoded the same way. Smaller mipmaps
               -- are often padded out with a flat alpha plane of their own.

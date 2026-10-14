@@ -1,3 +1,9 @@
+Unreleased
+==========
+
+Support GHC 9.4 – 9.14: relax upper bounds for `attoparsec`, `bytestring`,
+`hashable`, `text-show`, `vector` and `filepath`. Minimum supported GHC is now 9.4.
+
 0.2.1.0
 =======
 

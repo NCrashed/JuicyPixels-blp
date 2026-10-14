@@ -8,3 +8,6 @@ dist/
 register.sh
 unregister.sh
 dist-newstyle
+result
+result-*
+.direnv

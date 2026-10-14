@@ -1,8 +1,11 @@
-0.3.0.0 (unreleased)
+0.3.0.0 (2026-10-15)
 ====================
 
 Breaking changes:
 
+- `encodeBlpUncompressedWithAlpha` always writes an alpha plane and
+  `encodeBlpUncompressedWithoutAlpha` never does. Both used to pick by the
+  input image, so the two were identical and `blp2any -b` had no effect.
 - `decodeBlp` and `decodeBlpMipmaps` always return `ImageRGBA8`. JPEG BLPs
   whose stream is not four-component (greyscale, YCbCr) used to come back as
   `ImageY8` or `ImageRGB8`.

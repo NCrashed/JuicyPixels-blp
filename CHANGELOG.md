@@ -13,6 +13,10 @@ Breaking changes:
   `hashable` dependencies. `blp2any` no longer depends on
   `unordered-containers`.
 
+The uncompressed encoder no longer hands out ByteStrings over image memory it
+does not keep alive, and no longer relies on an orphan, endianness-dependent
+`Storable PixelRGBA8` instance.
+
 Decoder robustness for BLP1 files found in the wild:
 
 - Accept picture type 6 (WoW JPEG variant) and picture type 0 (#5, #10).

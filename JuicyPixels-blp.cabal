@@ -28,7 +28,11 @@ source-repository head
   type:      git
   location:  https://github.com/NCrashed/JuicyPixels-blp.git
 
+common warnings
+  ghc-options:         -Wall -Wcompat
+
 library
+  import:              warnings
   hs-source-dirs:      src
   exposed-modules:
     Codec.Picture.Blp
@@ -54,6 +58,7 @@ library
     RecordWildCards
 
 executable blp2any
+  import:              warnings
   hs-source-dirs:      blp2any
   main-is:             Main.hs
   other-modules:
@@ -76,6 +81,7 @@ executable blp2any
     RecordWildCards
 
 test-suite spec
+  import:              warnings
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Main.hs

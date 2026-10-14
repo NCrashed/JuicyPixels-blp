@@ -1,3 +1,9 @@
+{-|
+Pixel conversions between the BGRA planes of BLP1 JPEG content and
+JuicyPixels images.
+
+This is an internal module: its API may change between minor versions.
+-}
 module Codec.Picture.Blp.Internal.Convert(
     fromBlpJpeg
   , jpegAlphaIsUsable

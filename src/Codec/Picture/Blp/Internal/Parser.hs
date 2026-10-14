@@ -107,6 +107,13 @@ pictureTypeParser = (<?> "picture type") $ do
     3 -> return UncompressedWithAlpha
     4 -> return UncompressedWithAlpha
     5 -> return UncompressedWithoutAlpha
+    -- BLP1 files seen in the wild (notably from World of Warcraft assets,
+    -- as well as some BLPs found inside Warcraft III maps) use picture type
+    -- 6 for JPEG-compressed textures with an alpha channel. The actual data
+    -- layout is identical to type 2, and the dispatch in `blpParser` already
+    -- decides JPEG vs uncompressed based on the `compression` field, so we
+    -- can safely treat 6 as another spelling of `JPEGType`.
+    6 -> return JPEGType
     _ -> fail $ "Unknown picture type " ++ show i
 
 blpJpegParser :: [(Word32, Word32)] -> Parser BlpExt

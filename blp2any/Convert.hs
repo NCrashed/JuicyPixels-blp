@@ -12,7 +12,6 @@ import Codec.Picture.Blp
 import Control.Monad
 import Data.Char
 import Data.Maybe
-import Data.Monoid
 import System.Directory
 import System.FilePath
 

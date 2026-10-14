@@ -17,14 +17,11 @@ import Data.Bits
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Foldable (traverse_)
 import Data.Maybe
-import Data.Monoid
 import Data.Word
-import Foreign
-import System.IO.Unsafe (unsafePerformIO)
 
 import qualified Codec.Picture.Metadata as CM
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BS
+import qualified Data.ByteString.Internal as BI
 import qualified Data.Foldable as F
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
@@ -187,25 +184,25 @@ createMipMapsIndexed img = img : go img
 -- | Convert picture to BLP payload
 toBlpExt :: BlpCompression -> BlpPictureType -> Int -> Int -> Image PixelRGBA8 -> BlpExt
 toBlpExt compr pictype quality numMips img = case compr of
-  BlpCompressionJPEG -> toBlpJpg (fromIntegral quality) numMips hasAlpha img
+  BlpCompressionJPEG -> toBlpJpg (fromIntegral quality) numMips keepAlpha img
   BlpCompressionUncompressed -> case pictype of
     UncompressedWithAlpha -> toBlpUncompressed1 numMips img
     UncompressedWithoutAlpha -> toBlpUncompressed2 numMips img
     JPEGType -> toBlpUncompressed2 numMips img -- Consider this as without alpha
   where
-    hasAlpha = case pictype of
+    keepAlpha = case pictype of
       UncompressedWithAlpha -> True
       _ -> False
 
 -- | Convert picture to BLP JPEG and create mipmaps
 toBlpJpg :: Word8 -> Int -> Bool -> Image PixelRGBA8 -> BlpExt
-toBlpJpg quality numMips hasAlpha img = BlpJpeg {
+toBlpJpg quality numMips keepAlpha img = BlpJpeg {
     blpJpegHeader = header
   , blpJpegData = mipmapsRawWithoutHeader
   }
   where
     processAlpha :: Image PixelRGBA8 -> Image PixelRGBA8
-    processAlpha = pixelMap $ \p@(PixelRGBA8 r g b a) -> if hasAlpha then p else PixelRGBA8 r g b 255
+    processAlpha = pixelMap $ \p@(PixelRGBA8 r g b _) -> if keepAlpha then p else PixelRGBA8 r g b 255
 
     mipmaps :: [Image PixelCMYK8]
     mipmaps = toBlpCMYK8 <$> (fakeMipMaps numMips . createMipMaps . processAlpha $ img)
@@ -249,21 +246,17 @@ scanHeader maxheader mipmaps = go mipmaps mempty
 makePallette :: Image PixelRGBA8 -> (Image Pixel8, Palette)
 makePallette = palettize defaultPaletteOptions . pixelMap dropTransparency
 
-instance Storable PixelRGBA8 where
-  sizeOf _ = sizeOf (undefined :: Word32)
-  alignment _ = alignment (undefined :: Word32)
-  peek ptr = unpackPixel <$> peek (castPtr ptr :: Ptr Word32)
-  poke ptr px = poke (castPtr ptr :: Ptr Word32) . packPixel $ px
-
 -- | Convert palette to format that we need for BLP
 convertPalette :: Palette -> V.Vector PixelRGBA8
-convertPalette = V.convert . VS.unsafeCast . imageData . pixelMap ((\(PixelRGBA8 r g b a) -> PixelRGBA8 b g r a) . promotePixel :: PixelRGB8 -> PixelRGBA8)
+convertPalette palette = V.generate (imageWidth palette) $ \i ->
+  let PixelRGB8 r g b = pixelAt palette i 0 in PixelRGBA8 b g r 255
 
 -- | Convert indexed image to raw bytestring
 convertIndexed :: Image Pixel8 -> BS.ByteString
 convertIndexed img = let
   (fptr, l) = VS.unsafeToForeignPtr0 . imageData $ img
-  in unsafePerformIO $ withForeignPtr fptr $ \ptr -> BS.unsafePackCStringLen (castPtr ptr, l)
+  -- Shares the image buffer without copying; the ByteString keeps it alive.
+  in BI.fromForeignPtr fptr 0 l
 
 -- | Convert picture to BLP uncompressed with alpha and create mipmaps
 toBlpUncompressed1 :: Int -> Image PixelRGBA8 -> BlpExt

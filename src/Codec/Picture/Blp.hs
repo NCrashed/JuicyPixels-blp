@@ -13,11 +13,8 @@ module Codec.Picture.Blp(
   ) where
 
 import Codec.Picture
-import Codec.Picture.Types
 import Data.Bits (shiftR)
 import Data.ByteString (ByteString)
-import Data.Monoid
-import Data.Word
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -40,8 +37,9 @@ readBlpMipmaps fp = decodeBlpMipmaps `fmap` BS.readFile fp
 decodeBlp :: ByteString -> Either String DynamicImage
 decodeBlp bs = do
   is <- decodeBlpMipmaps bs
-  if null is then Left "No data in BLP"
-    else return $ head is
+  case is of
+    i : _ -> Right i
+    [] -> Left "No data in BLP"
 
 -- | Decodes BLP and returns original image plus all mipmaps
 decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
@@ -121,8 +119,8 @@ mipMapsUpTo minSize img = maxNum - minSizeNum
     w = dynamicMap imageWidth img
     h = dynamicMap imageHeight img
     minSide = min w h
-    maxNum = ceiling $ logBase 2 (fromIntegral minSide)
-    minSizeNum = floor $ logBase 2 (fromIntegral (max 1 minSize))
+    maxNum = ceiling $ logBase 2 (fromIntegral minSide :: Double)
+    minSizeNum = floor $ logBase 2 (fromIntegral (max 1 minSize) :: Double)
 
 writeBlpJpeg :: FilePath -> Int -> Int -> DynamicImage -> IO ()
 writeBlpJpeg fp quality numMips img = do

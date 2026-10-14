@@ -1,6 +1,5 @@
 module Main where
 
-import Data.Monoid
 import Options.Applicative.Simple
 
 import Statistics

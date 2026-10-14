@@ -1,6 +1,7 @@
+#!/bin/sh
 set -xe
 PKG_NAME=JuicyPixels-blp 
 
-rm ./dist-newstyle/sdist -rf | true
+rm -rf ./dist-newstyle/sdist
 cabal new-sdist
 cabal upload --publish ./dist-newstyle/sdist/$PKG_NAME-*.tar.gz

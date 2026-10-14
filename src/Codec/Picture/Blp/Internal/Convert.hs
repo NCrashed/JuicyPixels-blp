@@ -71,7 +71,7 @@ forceOpaque = pixelMap convert
 -- | Lay out the B, G, R and A planes of a texture as the four components of
 -- a BLP1 JPEG. The encoder labels them CMYK only because that is the
 -- four-component JPEG it can write; this is the exact inverse of
--- 'blpJpegToRGBA8'.
+-- @blpJpegToRGBA8@.
 toBlpCMYK8 :: Image PixelRGBA8 -> Image PixelCMYK8
 toBlpCMYK8 = pixelMap convert
   where

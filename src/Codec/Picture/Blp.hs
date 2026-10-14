@@ -51,7 +51,13 @@ decodeBlpMipmaps bs = do
     BlpJpeg {..} -> do
       let jpegs = (blpJpegHeader <>) `fmap` blpJpegData
       mips <- mapM decodeJpeg jpegs
-      return $ toPngRepresentable <$> mips
+      -- The alpha decision is taken once, from the full size mipmap, so that
+      -- every mipmap of a texture is decoded the same way. Smaller mipmaps
+      -- are often padded out with a flat alpha plane of their own.
+      let useAlpha = BlpFlagAlphaChannel `elem` blpFlags blp && case mips of
+            (mip0:_) -> jpegAlphaIsUsable mip0
+            []       -> False
+      return $ fromBlpJpeg useAlpha <$> mips
 
     BlpUncompressed1 {..} -> do
       let mkImage mip = ImageRGBA8 $ generateImage (gen mip) (fromIntegral $ blpWidth blp) (fromIntegral $ blpHeight blp)

@@ -192,6 +192,16 @@ jpegTests = testGroup "jpeg"
       img <- decodeRGBA . BSL.toStrict $ encodeBlpJpeg 100 1 (ImageRGBA8 clear)
       let d = maxDiff opaque img
       assertBool ("max channel difference " ++ show d) (d <= 4)
+  , testCase "mipmaps share a JPEG header (#18)" $ do
+      let shared = getDword headerSize jpegFile
+      assertBool ("shared header size " ++ show shared) (shared > 0 && shared <= 624)
+      levels <- decodeLevels jpegFile
+      sizes levels @?= [(16, 16), (8, 8), (4, 4)]
+  , testCase "single mipmap keeps its data out of the shared header (#18)" $ do
+      let tiny = generateImage (\_ _ -> PixelRGBA8 200 100 50 255) 1 1
+      img <- decodeRGBA . BSL.toStrict $ encodeBlpJpeg 100 1 (ImageRGBA8 tiny)
+      let d = maxDiff tiny img
+      assertBool ("max channel difference " ++ show d) (d <= 4)
   ]
 
 encoderTests :: TestTree

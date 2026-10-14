@@ -77,3 +77,22 @@ executable blp2any
 
   default-extensions:
     RecordWildCards
+
+test-suite spec
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Main.hs
+  other-modules:
+    Fixture
+  default-language:    Haskell2010
+  build-depends:
+      base
+    , bytestring
+    , JuicyPixels
+    , JuicyPixels-blp
+    , tasty                 >= 1.4    && < 1.6
+    , tasty-hunit           >= 0.10   && < 0.11
+
+  default-extensions:
+    OverloadedStrings
+    RecordWildCards

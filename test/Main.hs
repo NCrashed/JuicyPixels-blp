@@ -253,14 +253,26 @@ encoderTests = testGroup "encoder"
   , testCase "encoded mipmaps decode at their own sizes (#13)" $ do
       levels <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 3 (ImageRGBA8 gradient)
       sizes levels @?= [(16, 16), (8, 8), (4, 4)]
-  , testCase "alpha flag and picture type follow the input format" $ do
-      let header dyn = let bs = BSL.toStrict $ encodeBlpUncompressedWithAlpha 1 dyn
+  , testCase "JPEG alpha flag and picture type follow the input format" $ do
+      let header dyn = let bs = BSL.toStrict $ encodeBlpJpeg 90 1 dyn
                        in (getDword 8 bs, getDword pictureTypeOffset bs)
           rgba = convertRGBA8 (ImageRGBA8 gradient)
       header (ImageY8 $ pixelMap (\(PixelRGBA8 r _ _ _) -> r) rgba) @?= (0, 5)
       header (ImageYA8 $ pixelMap (\(PixelRGBA8 r _ _ a) -> PixelYA8 r a) rgba) @?= (8, 3)
       header (ImageRGB16 $ pixelMap (\(PixelRGBA8 r g b _) -> PixelRGB16 (w16 r) (w16 g) (w16 b)) rgba) @?= (0, 5)
       header (ImageRGBA16 $ pixelMap (\(PixelRGBA8 r g b a) -> PixelRGBA16 (w16 r) (w16 g) (w16 b) (w16 a)) rgba) @?= (8, 3)
+  , testCase "without alpha drops the alpha of an RGBA input" $ do
+      let bs = BSL.toStrict $ encodeBlpUncompressedWithoutAlpha 1 (ImageRGBA8 gradient)
+      (getDword 8 bs, getDword pictureTypeOffset bs) @?= (0, 5)
+      img <- decodeRGBA bs
+      let d = maxDiff opaqueGradient img
+      assertBool ("max channel difference " ++ show d) (d <= 8)
+  , testCase "with alpha keeps an alpha plane for an RGB input" $ do
+      let bs = BSL.toStrict $ encodeBlpUncompressedWithAlpha 1 (ImageRGB8 $ convertRGB8 (ImageRGBA8 opaqueGradient))
+      (getDword 8 bs, getDword pictureTypeOffset bs) @?= (8, 3)
+      img <- decodeRGBA bs
+      let d = maxDiff opaqueGradient img
+      assertBool ("max channel difference " ++ show d) (d <= 8)
   , testCase "JPEG without alpha decodes opaque" $ do
       let bs = BSL.toStrict $ encodeBlpJpeg 100 1 (ImageRGB8 $ convertRGB8 (ImageRGBA8 gradient))
       getDword 8 bs @?= 0

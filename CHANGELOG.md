@@ -9,6 +9,11 @@ Decoder robustness for BLP1 files found in the wild:
   without-alpha instead of crashing (#8).
 - A corrupt JPEG mipmap no longer fails the whole file; the mipmap list is
   cut at the first broken level (#9).
+- `decodeBlpMipmaps` renders uncompressed mipmaps at their own sizes instead of
+  crashing; a mip 0 too short for the image is a `Left` (#13).
+- Without-alpha textures decode opaque regardless of the palette's fourth
+  byte, so the encoder's own output no longer comes back transparent (#14).
+- Decoding no longer dumps the parsed structure to stderr (#15).
 - Skip mipmap slots that point past the end of the file or overlap an earlier
   one (#7).
 - Decode JPEG planes as BGRA instead of CMYK (#11).

@@ -135,6 +135,14 @@ malformedTests = testGroup "malformed input"
       assertLeft "" . decodeBlp $ BS.take 100 (withAlphaFile 4)
   , testCase "empty input" $
       assertLeft "" $ decodeBlp BS.empty
+  , testCase "file cut inside the header names the field" $
+      assertLeft "mipmaps sizes" . decodeBlp $ BS.take 100 (withAlphaFile 4)
+  , testCase "JPEG header longer than the file" $
+      assertLeft "jpeg header" . decodeBlp $ setDword headerSize 100000 jpegFile
+  , testCase "uncompressed file without mipmaps" $
+      assertLeft "No data" . decodeBlp $ blpFile defHeader [] (paletteBytes $ palette 256)
+  , testCase "JPEG file without mipmaps" $
+      assertLeft "No JPEG mipmap data" . decodeBlp $ blpFile defHeader { hCompression = 0 } [] "\0\0\0\0"
   ]
 
 -- | 16x16 texture with colour and alpha gradients, enough for three mip levels.
@@ -244,6 +252,29 @@ encoderTests = testGroup "encoder"
   , testCase "encoded mipmaps decode at their own sizes (#13)" $ do
       levels <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 3 (ImageRGBA8 gradient)
       sizes levels @?= [(16, 16), (8, 8), (4, 4)]
+  , testCase "alpha flag and picture type follow the input format" $ do
+      let header dyn = let bs = BSL.toStrict $ encodeBlpUncompressedWithAlpha 1 dyn
+                       in (getDword 8 bs, getDword pictureTypeOffset bs)
+          rgba = convertRGBA8 (ImageRGBA8 gradient)
+      header (ImageY8 $ pixelMap (\(PixelRGBA8 r _ _ _) -> r) rgba) @?= (0, 5)
+      header (ImageYA8 $ pixelMap (\(PixelRGBA8 r _ _ a) -> PixelYA8 r a) rgba) @?= (8, 3)
+      header (ImageRGB16 $ pixelMap (\(PixelRGBA8 r g b _) -> PixelRGB16 (w16 r) (w16 g) (w16 b)) rgba) @?= (0, 5)
+      header (ImageRGBA16 $ pixelMap (\(PixelRGBA8 r g b a) -> PixelRGBA16 (w16 r) (w16 g) (w16 b) (w16 a)) rgba) @?= (8, 3)
+  , testCase "JPEG without alpha decodes opaque" $ do
+      let bs = BSL.toStrict $ encodeBlpJpeg 100 1 (ImageRGB8 $ convertRGB8 (ImageRGBA8 gradient))
+      getDword 8 bs @?= 0
+      img <- decodeRGBA bs
+      let d = maxDiff opaqueGradient img
+      assertBool ("max channel difference " ++ show d) (d <= 8)
+  , testCase "asking for more mipmaps than levels stops at 1x1" $ do
+      levels <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 20 (ImageRGBA8 gradient)
+      sizes levels @?= [(16, 16), (8, 8), (4, 4), (2, 2), (1, 1)]
+  , testCase "non-square mip chain stops when a side reaches 1" $ do
+      let wide = generateImage (\x y -> PixelRGBA8 (fromIntegral x) (fromIntegral y) 0 255) 64 16
+      levels <- decodeLevels . BSL.toStrict $ encodeBlpJpeg 90 16 (ImageRGBA8 wide)
+      sizes levels @?= [(64, 16), (32, 8), (16, 4), (8, 2), (4, 1)]
+      odd' <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 16 (ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 1 2 3 4) 5 3)
+      sizes odd' @?= [(5, 3), (2, 1)]
   , testCase "mipMapsUpTo" $ do
       let img w h = ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 0 0 0 0) w h
       mipMapsUpTo 1 (img 16 16) @?= 4
@@ -273,3 +304,6 @@ fileTests = testGroup "files"
   where
     tryIO :: IO a -> IO (Either IOError a)
     tryIO = try
+
+w16 :: Word8 -> Word16
+w16 v = fromIntegral v * 257

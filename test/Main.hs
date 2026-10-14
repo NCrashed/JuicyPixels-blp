@@ -298,17 +298,29 @@ encoderTests = testGroup "encoder"
   , testCase "asking for more mipmaps than levels stops at 1x1" $ do
       levels <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 20 (ImageRGBA8 gradient)
       sizes levels @?= [(16, 16), (8, 8), (4, 4), (2, 2), (1, 1)]
-  , testCase "non-square mip chain stops when a side reaches 1" $ do
+  , testCase "non-square mip chain goes on to 1x1 (#26)" $ do
       let wide = generateImage (\x y -> PixelRGBA8 (fromIntegral x) (fromIntegral y) 0 255) 64 16
       levels <- decodeLevels . BSL.toStrict $ encodeBlpJpeg 90 16 (ImageRGBA8 wide)
-      sizes levels @?= [(64, 16), (32, 8), (16, 4), (8, 2), (4, 1)]
+      sizes levels @?= [(64, 16), (32, 8), (16, 4), (8, 2), (4, 1), (2, 1), (1, 1)]
       odd' <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 16 (ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 1 2 3 4) 5 3)
-      sizes odd' @?= [(5, 3), (2, 1)]
-  , testCase "mipMapsUpTo counts every level down to the minimum side" $ do
+      sizes odd' @?= [(5, 3), (2, 1), (1, 1)]
+  , testCase "single-row texture keeps halving its width (#26)" $ do
+      let row = ImageRGBA8 $ generateImage (\x _ -> PixelRGBA8 (fromIntegral x) 0 0 255) 8 1
+      forM_ [encodeBlpJpeg 90 16 row, encodeBlpUncompressedWithAlpha 16 row] $ \bs -> do
+        levels <- decodeLevels (BSL.toStrict bs)
+        sizes levels @?= [(8, 1), (4, 1), (2, 1), (1, 1)]
+  , testCase "a solid texture stays solid down to 1x1 (#26)" $ do
+      let solid = PixelRGBA8 200 100 50 128
+          img = ImageRGBA8 $ generateImage (\_ _ -> solid) 6 3
+      levels <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 16 img
+      sizes levels @?= [(6, 3), (3, 1), (1, 1)]
+      forM_ levels $ \level -> assertBool "every pixel unchanged" (all (== solid) (pixelsOf level))
+  , testCase "mipMapsUpTo counts levels by the larger side (#26)" $ do
       let img w h = ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 0 0 0 0) w h
       mipMapsUpTo 1 (img 16 16) @?= 5
       mipMapsUpTo 4 (img 16 16) @?= 3
-      mipMapsUpTo 1 (img 64 16) @?= 5
+      mipMapsUpTo 1 (img 64 16) @?= 7
+      mipMapsUpTo 16 (img 64 16) @?= 3
       mipMapsUpTo 1 (img 5 5) @?= 3
       mipMapsUpTo 1 (img 1 1) @?= 1
       mipMapsUpTo 32 (img 16 16) @?= 1

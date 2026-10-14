@@ -177,6 +177,21 @@ jpegTests = testGroup "jpeg"
       sizes levels @?= [(16, 16), (8, 8)]
   , testCase "broken mip 0 fails the file" $
       assertLeft "" . decodeBlp $ setDword (sizeSlot 0) 12 jpegFile
+  , testCase "semi-transparent texture round-trips through the encoder (#17)" $ do
+      img <- decodeRGBA . BSL.toStrict $ encodeBlpJpeg 100 1 (ImageRGBA8 gradient)
+      let d = maxDiff gradient img
+      assertBool ("max channel difference " ++ show d) (d <= 8)
+  , testCase "uniformly semi-transparent texture keeps its alpha (#17)" $ do
+      let solid = generateImage (\_ _ -> PixelRGBA8 200 100 50 128) 8 8
+      img <- decodeRGBA . BSL.toStrict $ encodeBlpJpeg 100 1 (ImageRGBA8 solid)
+      let d = maxDiff solid img
+      assertBool ("max channel difference " ++ show d) (d <= 4)
+  , testCase "all-zero alpha plane means opaque (#11)" $ do
+      let clear = generateImage (\_ _ -> PixelRGBA8 200 100 50 0) 8 8
+          opaque = pixelMap (\(PixelRGBA8 r g b _) -> PixelRGBA8 r g b 255) clear
+      img <- decodeRGBA . BSL.toStrict $ encodeBlpJpeg 100 1 (ImageRGBA8 clear)
+      let d = maxDiff opaque img
+      assertBool ("max channel difference " ++ show d) (d <= 4)
   ]
 
 encoderTests :: TestTree

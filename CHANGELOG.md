@@ -1,6 +1,20 @@
 Unreleased
 ==========
 
+Breaking changes to `Codec.Picture.Blp.Internal.*`:
+
+- `BlpStruct` fields `blpFlags`, `blpPictureType` and `blpPictureSubType`
+  are now `blpAlphaBits`, `blpExtra` and `blpHasMipmaps`, holding the raw
+  header values. `BlpFlag` and `BlpPictureType` are gone.
+- `BlpUncompressed1` and `BlpUncompressed2` are merged into `BlpPaletted`,
+  which keeps each mip level's raw data; `blpUncompressed1Parser` and
+  `blpUncompressed2Parser` are replaced by `blpPalettedParser`.
+
+The decoder takes alpha from `alphaBits` as the format specifies, instead of
+from the `extra` field (#25). Paletted files with 1-bit and 4-bit alpha now
+decode, files whose `extra` field says otherwise keep their alpha, and
+unknown `extra` values are no longer rejected. Encoder output is unchanged.
+
 Documentation: a description of the BLP1 format and of what the library
 supports (`docs/format.md`), a rewritten README with usage, `blp2any` and
 limitations, haddock for every module, and corrected `blp2any` help.

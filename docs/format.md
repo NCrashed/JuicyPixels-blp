@@ -27,11 +27,11 @@ The header is 156 bytes (`0x9C`) long.
 |---|---|---|---|---|
 | `0x00` | `char[4]` | magic | – | `"BLP1"` |
 | `0x04` | `uint32` | content | `blpCompression` | `0` = JPEG, `1` = paletted ("direct") |
-| `0x08` | `uint32` | alphaBits | `blpFlags` | Alpha depth: 0, 1, 4 or 8 for paletted content, 0 or 8 for JPEG |
+| `0x08` | `uint32` | alphaBits | `blpAlphaBits` | Alpha depth: 0, 1, 4 or 8 for paletted content, 0 or 8 for JPEG |
 | `0x0C` | `uint32` | width | `blpWidth` | Width of mip 0 in pixels |
 | `0x10` | `uint32` | height | `blpHeight` | Height of mip 0 in pixels |
-| `0x14` | `uint32` | extra | `blpPictureType` | No known effect; WorldEdit writes 5 |
-| `0x18` | `uint32` | hasMipmaps | `blpPictureSubType` | `0` = only mip 0, otherwise a full mip chain |
+| `0x14` | `uint32` | extra | `blpExtra` | No known effect; WorldEdit writes 5 |
+| `0x18` | `uint32` | hasMipmaps | `blpHasMipmaps` | `0` = only mip 0, otherwise a full mip chain |
 | `0x1C` | `uint32[16]` | mipmapOffset | – | File offset of each mip level |
 | `0x5C` | `uint32[16]` | mipmapSize | – | Size in bytes of each mip level |
 
@@ -41,16 +41,15 @@ What the library does with these fields:
   [Not supported](#not-supported)).
 - **content.** Values other than 0 and 1 are rejected. The spec suggests
   treating them as JPEG; the library is stricter.
-- **alphaBits.** The decoder only checks bit 3 (the value 8) and chooses
-  between with-alpha and without-alpha by `extra` instead
-  ([#25](https://github.com/NCrashed/JuicyPixels-blp/issues/25)). The
-  encoder writes 8 or 0.
-- **extra.** The decoder only accepts the values 0, 2, 3, 4, 5 and 6, and
-  rejects any other value, even though the field has no effect
-  ([#25](https://github.com/NCrashed/JuicyPixels-blp/issues/25)). JPEG files
-  ignore it. On paletted files, 0, 3 and 4 mean with alpha, 5 means without
-  alpha, and 2 and 6 are rejected.
-  The encoder writes 3 with alpha and 5 without.
+- **alphaBits.** Decides whether there is alpha and how it is packed. Values
+  that are not valid for the content type mean no alpha. On paletted files,
+  a mip 0 too short to hold the declared alpha list also means no alpha;
+  some tools declare alpha and then write only the index list. The encoder
+  writes 8 or 0.
+- **extra.** Read and kept, but it has no effect on decoding. The encoder
+  writes 3 with alpha and 5 without, so that readers which still pick alpha
+  by this field, as older versions of this library did, read the files
+  correctly.
 - **hasMipmaps.** The decoder ignores it and goes by the mipmap slots. The
   encoder always writes 5, which is non-zero.
 
@@ -128,8 +127,8 @@ per mip level:
   and carries no alpha. The decoder ignores it
   ([#14](https://github.com/NCrashed/JuicyPixels-blp/issues/14)).
 - **Alpha.** Alpha values are packed least-significant bit first. The
-  library handles 8-bit alpha only; 1-bit and 4-bit alpha are decoded as
-  opaque ([#25](https://github.com/NCrashed/JuicyPixels-blp/issues/25)).
+  decoder handles 1, 4 and 8 bits and scales them to 0–255; the encoder
+  writes 8-bit alpha.
 - **Short palettes.** Palettes shorter than 256 entries, where the first mip
   starts earlier than `0x9C + 1024`, are accepted and padded
   ([#6](https://github.com/NCrashed/JuicyPixels-blp/pull/6)).
@@ -142,21 +141,16 @@ The decoder accepts these, besides the ones mentioned above:
 
 | Deviation | Handling |
 |---|---|
-| `extra` = 6 on JPEG files (WoW assets ported to Warcraft III) | read as JPEG ([#5](https://github.com/NCrashed/JuicyPixels-blp/pull/5)) |
-| `extra` = 0 on paletted files with alpha | read as with alpha ([#10](https://github.com/NCrashed/JuicyPixels-blp/pull/10)) |
-| With-alpha `extra` but mip 0 between `w·h` and `2·w·h` bytes | read as without alpha ([#8](https://github.com/NCrashed/JuicyPixels-blp/pull/8)) |
+| Unusual `extra` values, such as 6 on WoW assets ported to Warcraft III and 0 from community tools | ignored ([#5](https://github.com/NCrashed/JuicyPixels-blp/pull/5), [#10](https://github.com/NCrashed/JuicyPixels-blp/pull/10)) |
+| `alphaBits` declared, but mip 0 holds only the index list | read as without alpha ([#8](https://github.com/NCrashed/JuicyPixels-blp/pull/8)) |
 | Garbage in unused mipmap slots | slot skipped ([#7](https://github.com/NCrashed/JuicyPixels-blp/pull/7)) |
 | Truncated or corrupt tail mipmaps | levels before it kept ([#9](https://github.com/NCrashed/JuicyPixels-blp/pull/9)) |
-
-The workarounds for `extra` = 0 and for mislabelled files (#10 and #8) are
-no longer needed once alpha follows `alphaBits`
-([#25](https://github.com/NCrashed/JuicyPixels-blp/issues/25)).
 
 ## Not supported
 
 - **BLP0**, which stores each mip level in a separate `.b00` … `.b15` file.
 - **BLP2**, the World of Warcraft variant with DXT compression
   ([#3](https://github.com/NCrashed/JuicyPixels-blp/issues/3)).
-- **1-bit and 4-bit alpha** in paletted BLP1
-  ([#25](https://github.com/NCrashed/JuicyPixels-blp/issues/25)).
-- **Writing a chosen `extra` or `hasMipmaps` value.**
+- **Writing 1-bit or 4-bit alpha**, or a chosen `extra` or `hasMipmaps`
+  value, through the public encoders. `Codec.Picture.Blp.Internal.Encoder`
+  can write any `BlpStruct`.

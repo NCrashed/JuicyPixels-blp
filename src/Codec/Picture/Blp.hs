@@ -17,7 +17,6 @@ import Codec.Picture.Types
 import Data.ByteString (ByteString)
 import Data.Monoid
 import Data.Word
-import TextShow.Debug.Trace
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -47,7 +46,7 @@ decodeBlp bs = do
 decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
 decodeBlpMipmaps bs = do
   blp <- parseBlp bs
-  case blpExt $ traceTextShowId blp of
+  case blpExt blp of
     BlpJpeg {..} -> do
       let jpegs = (blpJpegHeader <>) `fmap` blpJpegData
       case jpegs of

@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cabal:
+    name: GHC ${{ matrix.ghc }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # devShells from flake.nix; keep in sync with `tested-with` in the cabal file.
+        ghc: [ghc94, ghc96, ghc98, ghc910, ghc912, ghc914]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+
+      - name: Prepare dev shell
+        run: nix develop .#${{ matrix.ghc }} --command bash -c 'ghc --version && cabal --version'
+
+      - name: Update package index
+        run: nix develop .#${{ matrix.ghc }} --command cabal update
+
+      - name: Resolve build plan
+        run: nix develop .#${{ matrix.ghc }} --command cabal build all --dry-run
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/state/cabal/store
+          key: cabal-${{ matrix.ghc }}-${{ hashFiles('dist-newstyle/cache/plan.json') }}
+          restore-keys: cabal-${{ matrix.ghc }}-
+
+      - name: Build
+        run: nix develop .#${{ matrix.ghc }} --command cabal build all
+
+      - name: Test
+        run: nix develop .#${{ matrix.ghc }} --command cabal test all
+
+      - name: Check package
+        run: nix develop .#${{ matrix.ghc }} --command cabal check
+
+  nix:
+    name: Nix build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix build --print-build-logs
+      - run: nix flake check --print-build-logs

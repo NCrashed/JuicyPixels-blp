@@ -114,6 +114,7 @@ test-suite spec
   other-modules:
     Deprecated
     Fixture
+    Properties
   default-language:    Haskell2010
   build-depends:
       base
@@ -123,7 +124,10 @@ test-suite spec
     , JuicyPixels
     , JuicyPixels-blp
     , tasty                 >= 1.4    && < 1.6
+    , deepseq
+    , QuickCheck            >= 2.14   && < 2.17
     , tasty-hunit           >= 0.10   && < 0.11
+    , tasty-quickcheck      >= 0.10.2 && < 0.12
 
   default-extensions:
     OverloadedStrings

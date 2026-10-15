@@ -24,7 +24,9 @@ jobs:
         include:
           # The oldest supported Ubuntu, so the binary needs an older glibc.
           - { os: ubuntu-22.04, name: linux-x86_64 }
-          - { os: macos-latest, name: macos-arm64 }
+          # macos-latest (SDK 27) has library stubs the GHC toolchain's linker
+          # rejects ("unknown architecture arm64e.x1"); macos-15 links fine.
+          - { os: macos-15, name: macos-arm64 }
           - { os: windows-latest, name: windows-x86_64 }
     defaults:
       run:

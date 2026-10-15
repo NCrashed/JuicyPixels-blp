@@ -1,6 +1,33 @@
 Unreleased
 ==========
 
+New encoding API (the old functions still work, as deprecated wrappers):
+
+- `encodeBlpWith` and `writeBlpWith` take `BlpEncodeOptions` (a `BlpFormat`
+  and a mip level count) and return `Either BlpEncodeError`. Empty images,
+  sides above 65535, JPEG quality outside 1..100 and files over 4 GiB are
+  errors instead of crashes or silent wrap-around.
+- `encodeBlpJpeg`, `encodeBlpUncompressedWithAlpha`,
+  `encodeBlpUncompressedWithoutAlpha` and the `writeBlp*` variants are
+  deprecated. They now clamp the JPEG quality, which used to wrap modulo
+  256.
+- `mipMapsUpTo` is capped at 16, the number of slots in the header.
+
+Encoder fixes:
+
+- Unused mipmap slots are zero, as the format requires. They used to repeat
+  the last level, which readers that map slot i to level i read as the wrong
+  level.
+- `hasMipmaps` is 0 when only one level is written.
+- Only the levels that are written are encoded. Asking for fewer levels
+  used to JPEG-encode every remaining level anyway: 10x slower for a single
+  level of a 2048x2048 texture.
+
+Breaking changes to `Codec.Picture.Blp.Internal.*`: `encodeBlp` and
+`blpEncoder` take only the `BlpStruct`, `toBlpStruct` takes a `BlpFormat`,
+`blpCompression` is a function of `blpExt` instead of a field, and
+`toBlpExt` is gone.
+
 Decoding untrusted files is safer:
 
 - Errors that JuicyPixels' JPEG decoder raises from pure code are returned

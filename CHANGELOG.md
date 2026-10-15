@@ -1,5 +1,5 @@
-Unreleased
-==========
+0.5.0.0 (2026-10-16)
+====================
 
 Paletted textures look better, and encoding takes new options. The
 encoder's output changes, and `BlpEncodeOptions` has new fields.
@@ -20,6 +20,8 @@ encoder's output changes, and `BlpEncodeOptions` has new fields.
   updating. `BlpInvalidMaxSize` is a new `BlpEncodeError`.
 - JPEG textures made from RGBA images whose pixels are all opaque are
   written without alpha.
+- Ready-made `blp2any` binaries for Windows, macOS (Apple Silicon) and
+  Linux are attached to the GitHub release (#45).
 - `Codec.Picture.Blp.Internal.Encoder`: `toBlpStruct` takes
   `BlpEncodeOptions`; `shrinkTo` is new.
 

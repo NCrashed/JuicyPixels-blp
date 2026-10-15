@@ -153,6 +153,16 @@ malformedTests = testGroup "malformed input"
       assertLeft "mipmaps sizes" . decodeBlp $ BS.take 100 (withAlphaFile 4)
   , testCase "JPEG header longer than the file" $
       assertLeft "jpeg header" . decodeBlp $ setDword headerSize 100000 jpegFile
+  , testCase "width or height outside 1..65535 is an error" $ do
+      let sized w h = uncompressed defHeader { hFlags = 0, hWidth = w, hHeight = h } (palette 256) [BS.replicate 4 0]
+      assertLeft "Invalid image size" . decodeBlp $ sized 0xFFFFFFFF 0xFFFFFFFF
+      assertLeft "Invalid image size" . decodeBlp $ sized 0 4
+      assertLeft "Invalid image size" . decodeBlp $ sized 4 65536
+  , testCase "garbage slot before mip 0 leaves the palette intact" $ do
+      let bs = setDword (offsetSlot 1) 200 . setDword (sizeSlot 1) 4 $ withAlphaFile 4
+      assertPixels withAlphaPixel bs
+      levels <- decodeLevels bs
+      length levels @?= 1
   , testCase "uncompressed file without mipmaps" $
       assertLeft "No data" . decodeBlp $ blpFile defHeader [] (paletteBytes $ palette 256)
   , testCase "JPEG file without mipmaps" $
@@ -205,6 +215,29 @@ jpegTests = testGroup "jpeg"
   , testCase "broken last mip keeps the levels before it (#9)" $ do
       levels <- decodeLevels (setDword (sizeSlot 2) 12 jpegFile)
       sizes levels @?= [(16, 16), (8, 8)]
+  , testCase "JPEG frame larger than its level is rejected before decoding" $ do
+      let sof = frameHeaderAt (fromIntegral headerSize + 4) jpegFile
+          huge = foldr (\(i, v) bs -> setByte i v bs) jpegFile [(sof + k, 0xFF) | k <- [5 .. 8]]
+      assertLeft "larger than its level size" $ decodeBlp huge
+  , testCase "JPEG frame smaller than its level is padded with transparent black" $ do
+      let big = setDword 12 32 (setDword 16 32 jpegFile)
+      levels <- decodeLevels big
+      sizes (take 2 levels) @?= [(32, 32), (16, 16)]
+      orig <- decodeRGBA jpegFile
+      case levels of
+        mip0 : _ -> do
+          pixelAt mip0 3 5 @?= pixelAt orig 3 5
+          pixelAt mip0 20 20 @?= PixelRGBA8 0 0 0 0
+        [] -> assertFailure "no levels"
+  , testCase "a missing middle slot ends the chain" $ do
+      levels <- decodeLevels (setDword (sizeSlot 1) 0 jpegFile)
+      sizes levels @?= [(16, 16)]
+  , testCase "a JPEG decoder error in mip 0 is a Left" $
+      assertLeft "JPEG decoding failed" . decodeBlp $ jpegBlp 1 1 [badJpeg]
+  , testCase "a JPEG decoder error in a tail mip ends the list" $ do
+      let good = BSL.toStrict . encodeJpeg $ (convertImage (generateImage (\_ _ -> PixelRGB8 10 20 30) 2 2 :: Image PixelRGB8) :: Image PixelYCbCr8)
+      levels <- decodeLevels (jpegBlp 2 2 [good, badJpeg])
+      sizes levels @?= [(2, 2)]
   , testCase "broken mip 0 fails the file" $
       assertLeft "" . decodeBlp $ setDword (sizeSlot 0) 12 jpegFile
   , testCase "three-component JPEG decodes to RGBA" $ do
@@ -315,6 +348,12 @@ encoderTests = testGroup "encoder"
       levels <- decodeLevels . BSL.toStrict $ encodeBlpUncompressedWithAlpha 16 img
       sizes levels @?= [(6, 3), (3, 1), (1, 1)]
       forM_ levels $ \level -> assertBool "every pixel unchanged" (all (== solid) (pixelsOf level))
+  , testCase "slots repeating the last level add no levels" $ do
+      let bs = BSL.toStrict $ encodeBlpUncompressedWithAlpha 5 (ImageRGBA8 gradient)
+          lastSlot = (getDword (offsetSlot 4) bs, getDword (sizeSlot 4) bs)
+          padded = foldr (\i b -> setDword (offsetSlot i) (fst lastSlot) (setDword (sizeSlot i) (snd lastSlot) b)) bs [5 .. 15]
+      levels <- decodeLevels padded
+      sizes levels @?= [(16, 16), (8, 8), (4, 4), (2, 2), (1, 1)]
   , testCase "mipMapsUpTo counts levels by the larger side (#26)" $ do
       let img w h = ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 0 0 0 0) w h
       mipMapsUpTo 1 (img 16 16) @?= 5
@@ -360,3 +399,25 @@ w16 v = fromIntegral v * 257
 
 setAlpha :: Word8 -> PixelRGBA8 -> PixelRGBA8
 setAlpha a (PixelRGBA8 r g b _) = PixelRGBA8 r g b a
+
+setByte :: Int -> Word8 -> ByteString -> ByteString
+setByte i v bs = BS.take i bs <> BS.singleton v <> BS.drop (i + 1) bs
+
+-- | Offset of the first JPEG frame header (FF C0) at or after the given offset.
+frameHeaderAt :: Word32 -> ByteString -> Int
+frameHeaderAt from bs = fromIntegral from + BS.length (fst (BS.breakSubstring (BS.pack [0xFF, 0xC0]) (BS.drop (fromIntegral from) bs)))
+
+-- | A 1x1 JPEG whose scan selects a component the frame does not have.
+-- JuicyPixels 3.3.9 raises an error on it instead of returning Left.
+badJpeg :: ByteString
+badJpeg = BS.pack
+  [ 0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00
+  , 0xff, 0xda, 0x00, 0x08, 0x01, 0x02, 0x00, 0x00, 0x3f, 0x00, 0xff, 0xd9 ]
+
+-- | JPEG BLP without alpha and with an empty shared header, holding the given
+-- streams as its mip levels.
+jpegBlp :: Word32 -> Word32 -> [ByteString] -> ByteString
+jpegBlp w h mips = blpFile defHeader { hCompression = 0, hFlags = 0, hWidth = w, hHeight = h } slots ("\0\0\0\0" <> BS.concat mips)
+  where
+    sizes' = map (fromIntegral . BS.length) mips
+    slots = zip (scanl (+) (fromIntegral headerSize + 4) sizes') sizes'

@@ -84,9 +84,11 @@ are stored but skipped.
 
 - It writes as many levels as asked for, at least mip 0 and at most the full
   chain down to 1×1. Unused slots are zero, and levels are encoded only
-  if they are written. Downscaling averages 2×2 blocks of colour and alpha,
-  reusing the edge pixel on odd or one-pixel sides, and takes the top-left
-  pixel for palette indices
+  if they are written. Downscaling averages 2×2 blocks, reusing the edge pixel
+  on odd or one-pixel sides. Colour is weighted by alpha, so transparent
+  pixels do not darken the edges of sprites; alpha, including the alpha list
+  of paletted textures, is a plain average. Palette indices take the
+  top-left pixel of each block
   ([#26](https://github.com/NCrashed/JuicyPixels-blp/issues/26)).
 - `mipMapsUpTo` counts the levels whose larger side is at least a minimum;
   with 1 that is the full chain.

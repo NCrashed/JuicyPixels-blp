@@ -2,6 +2,7 @@ module Main(main) where
 
 import Codec.Picture
 import Codec.Picture.Blp
+import Codec.Picture.Blp.Internal.Encoder (createMipMaps)
 import Codec.Picture.Types (convertImage)
 import Control.Exception (bracket_, try)
 import Control.Monad (forM_)
@@ -373,6 +374,24 @@ encoderTests = testGroup "encoder"
       errorOf (opts (BlpFormatJpeg 0)) (blank 4 4) @?= Just (BlpInvalidJpegQuality 0)
       errorOf (opts (BlpFormatJpeg 101)) (blank 4 4) @?= Just (BlpInvalidJpegQuality 101)
       errorOf defaultBlpEncodeOptions (blank 4 4) @?= Nothing
+  , testCase "colour of transparent pixels does not bleed into mipmaps" $ do
+      let px x y = if (x, y) == (0, 0) then PixelRGBA8 255 255 255 255 else PixelRGBA8 0 0 0 0
+          img = generateImage px 2 2
+      case createMipMaps img of
+        _ : level1 : _ -> pixelAt level1 0 0 @?= PixelRGBA8 255 255 255 64
+        _ -> assertFailure "expected two levels"
+  , testCase "paletted alpha mipmaps are averaged" $ do
+      let checker = generateImage (\x y -> PixelRGBA8 200 100 50 (if even (x + y) then 0 else 255)) 16 16
+      levels <- decodeLevels . BSL.toStrict $ enc (BlpFormatPaletted True) 2 (ImageRGBA8 checker)
+      case levels of
+        _ : level1 : _ -> assertBool "alpha around half" $
+          all (\(PixelRGBA8 _ _ _ a) -> a == 128) (pixelsOf level1)
+        _ -> assertFailure "expected two levels"
+  , testCase "opaque mipmaps average plainly" $ do
+      let img = generateImage (\x _ -> PixelRGBA8 (fromIntegral $ 10 * x) 7 0 255) 4 1
+      case createMipMaps img of
+        _ : level1 : _ -> pixelsOf level1 @?= [PixelRGBA8 5 7 0 255, PixelRGBA8 25 7 0 255]
+        _ -> assertFailure "expected two levels"
   , testCase "mipMapsUpTo is at most 16" $
       mipMapsUpTo 1 (ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 0 0 0 0) 65535 1) @?= 16
   , testCase "mipMapsUpTo counts levels by the larger side (#26)" $ do

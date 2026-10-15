@@ -1,13 +1,67 @@
-Unreleased
-==========
+0.4.0.0 (2026-10-15)
+====================
 
-Faster: JPEG decoding is 2.1–2.7x and JPEG encoding 2.2–2.8x as fast,
-measured with the new benchmark suite (`bench/Main.hs`) at 64 to 2048
-pixels. The channel shuffles and the alpha check now work on the pixel
-buffer directly, and mipmaps are built with integer arithmetic. Output is
+Breaking changes:
+
+- New encoding API: `encodeBlpWith` and `writeBlpWith` take
+  `BlpEncodeOptions` (a `BlpFormat` and a mip level count) and return
+  `Either BlpEncodeError`. Empty images, sides above 65535, JPEG quality
+  outside 1..100 and files over 4 GiB are errors instead of crashes or
+  silent wrap-around (#31). `encodeBlpJpeg`, `encodeBlpUncompressedWithAlpha`,
+  `encodeBlpUncompressedWithoutAlpha` and their `writeBlp*` variants still
+  work as deprecated wrappers; they clamp the JPEG quality, which used to
+  wrap modulo 256.
+- The decoder takes alpha from the `alphaBits` header field, as the format
+  specifies, instead of from the `extra` field. Paletted files with 1-bit and
+  4-bit alpha now decode, files whose `extra` field says otherwise keep their
+  alpha, and unknown `extra` values are no longer rejected (#25).
+- Non-square textures get the full mip chain down to 1x1 instead of
+  stopping when the shorter side reaches one pixel, and `mipMapsUpTo` counts
+  levels by the larger side, capped at 16 (#26, #31).
+- Mipmap colour is averaged with alpha as the weight, so transparent pixels
+  no longer darken the edges of sprites, and the alpha of paletted mipmaps
+  is averaged instead of sampled. Opaque textures encode exactly as before
+  (#32).
+- `Codec.Picture.Blp.Internal.*`:
+  - `BlpStruct` keeps the raw header values in `blpAlphaBits`, `blpExtra` and
+    `blpHasMipmaps`; `blpCompression` is a function of `blpExt`. `BlpFlag` and
+    `BlpPictureType` are gone.
+  - Paletted content is one `BlpPaletted` constructor holding each level's
+    raw data.
+  - The parser is `parseBlp` plus `mipLevels` and `jpegFrameSize`; the
+    attoparsec walk over the content (`blpJpegParser`, `skipToOffset`, ...)
+    is gone.
+  - `encodeBlp` and `blpEncoder` take just the `BlpStruct`; `toBlpStruct`
+    takes a `BlpFormat`.
+
+Decoding untrusted files (#30):
+
+- Errors that JuicyPixels' JPEG decoder raises from pure code are returned
+  as `Left`; in a tail mipmap they end the list.
+- Width and height must be between 1 and 65535. Larger values used to
+  overflow the size checks and leave an exception in the decoded image.
+- Each JPEG level's frame size is read before decoding. A frame larger than
+  the level is rejected, so an 800-byte file can no longer demand gigabytes;
+  a smaller one is padded with transparent black.
+- Mipmap slots are read by index. A missing or garbage slot ends the chain
+  instead of shifting the later levels, and a garbage slot that points into
+  the palette no longer breaks the file.
+- Some corrupt JPEG streams still make JuicyPixels loop forever
+  (haskell-github-trust/Juicy.Pixels#230), so decoding untrusted files needs
+  a timeout.
+
+Encoder fixes (#31):
+
+- Unused mipmap slots are zero, as the format requires, and `hasMipmaps` is
+  0 when only one level is written.
+- Only the levels that are written are encoded; asking for one level of a
+  2048x2048 JPEG texture used to encode all of them.
+
+Faster (#34): JPEG decoding is 2.1–2.7x and JPEG encoding 2.2–2.8x as fast,
+measured with the new benchmark suite (`bench/Main.hs`). Output is
 byte-identical.
 
-blp2any:
+blp2any (#33):
 
 - `-s`/`--shallow` and `-p` (now also `--flatten`) were accepted but did
   nothing; they now keep conversion to the top folder and write all output
@@ -17,77 +71,11 @@ blp2any:
   with status 1 if anything failed.
 - An input folder given with a trailing slash no longer sends output to the
   root of the file system.
-- `--version` reports the package version instead of 0.1.0.0.
+- `--version` reports the package version.
 
-New encoding API (the old functions still work, as deprecated wrappers):
-
-- `encodeBlpWith` and `writeBlpWith` take `BlpEncodeOptions` (a `BlpFormat`
-  and a mip level count) and return `Either BlpEncodeError`. Empty images,
-  sides above 65535, JPEG quality outside 1..100 and files over 4 GiB are
-  errors instead of crashes or silent wrap-around.
-- `encodeBlpJpeg`, `encodeBlpUncompressedWithAlpha`,
-  `encodeBlpUncompressedWithoutAlpha` and the `writeBlp*` variants are
-  deprecated. They now clamp the JPEG quality, which used to wrap modulo
-  256.
-- `mipMapsUpTo` is capped at 16, the number of slots in the header.
-
-Encoder fixes:
-
-- Mipmap colour is averaged with alpha as the weight, so the colour of
-  transparent pixels no longer bleeds into the edges of sprites as a dark
-  halo, and the alpha list of paletted mipmaps is averaged instead of taking
-  one pixel of each block, which turned fine alpha patterns fully
-  transparent. Opaque textures encode exactly as before.
-- Unused mipmap slots are zero, as the format requires. They used to repeat
-  the last level, which readers that map slot i to level i read as the wrong
-  level.
-- `hasMipmaps` is 0 when only one level is written.
-- Only the levels that are written are encoded. Asking for fewer levels
-  used to JPEG-encode every remaining level anyway: 10x slower for a single
-  level of a 2048x2048 texture.
-
-Breaking changes to `Codec.Picture.Blp.Internal.*`: `encodeBlp` and
-`blpEncoder` take only the `BlpStruct`, `toBlpStruct` takes a `BlpFormat`,
-`blpCompression` is a function of `blpExt` instead of a field, and
-`toBlpExt` is gone.
-
-Decoding untrusted files is safer:
-
-- Errors that JuicyPixels' JPEG decoder raises from pure code are returned
-  as `Left` instead of escaping as exceptions, also from tail mipmaps.
-- Width and height must be between 1 and 65535. Larger values used to
-  overflow the size checks and leave an exception in the decoded image.
-- Each JPEG level's frame size is read before decoding. A frame larger than
-  the level is rejected, so an 800-byte file can no longer demand gigabytes;
-  a smaller one is padded with transparent black.
-- Mipmap slots are read by index. A missing or garbage slot ends the chain
-  instead of shifting the later levels, and a garbage slot that points into
-  the palette no longer breaks the file.
-
-Breaking changes to `Codec.Picture.Blp.Internal.*`:
-
-- `BlpStruct` fields `blpFlags`, `blpPictureType` and `blpPictureSubType`
-  are now `blpAlphaBits`, `blpExtra` and `blpHasMipmaps`, holding the raw
-  header values. `BlpFlag` and `BlpPictureType` are gone.
-- `BlpUncompressed1` and `BlpUncompressed2` are merged into `BlpPaletted`,
-  which keeps each mip level's raw data; `blpUncompressed1Parser` and
-  `blpUncompressed2Parser` are replaced by `blpPalettedParser`.
-
-The decoder takes alpha from `alphaBits` as the format specifies, instead of
-from the `extra` field (#25). Paletted files with 1-bit and 4-bit alpha now
-decode, files whose `extra` field says otherwise keep their alpha, and
-unknown `extra` values are no longer rejected. Encoder output is unchanged.
-
-The encoder writes the full mip chain down to 1x1 for non-square textures
-instead of stopping when the shorter side reaches one pixel (#26), and
-`mipMapsUpTo` counts levels by the larger side, so `blp2any`'s default
-keeps every level.
-
-Documentation: a description of the BLP1 format and of what the library
-supports (`docs/format.md`), a rewritten README with usage, `blp2any` and
-limitations, haddock for every module, and corrected `blp2any` help.
-The old `Specification` file is gone; it described several header fields
-and the palette alpha wrongly.
+Documentation: `docs/format.md` describes the BLP1 format and what the
+library does with each part; the README covers usage, `blp2any`,
+limitations and benchmarking; every module has haddock (#27).
 
 0.3.0.0 (2026-10-15)
 ====================

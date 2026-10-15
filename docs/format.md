@@ -116,6 +116,11 @@ uint8  jpegHeader[jpegHeaderSize]
   forged frame header from making the decoder allocate gigabytes. A smaller
   frame is padded with transparent black to the level size, as Warcraft III
   does.
+- **JuicyPixels.** The JPEG streams themselves are decoded by JuicyPixels.
+  Errors it raises are turned into `Left`, but some corrupt streams make it
+  loop forever
+  ([Juicy.Pixels#230](https://github.com/haskell-github-trust/Juicy.Pixels/issues/230)),
+  so decoding untrusted files needs a timeout.
 - **Header size.** Warcraft III crashes on a `jpegHeaderSize` above 624.
   The encoder shares the longest common prefix of all levels, up to 624
   bytes, and leaves every level at least one byte of its own

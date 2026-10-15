@@ -65,8 +65,9 @@ minor versions.
 
   The decoder reports malformed input as `Left`, including errors raised
   inside JuicyPixels' JPEG decoder. One known exception: some corrupt JPEG
-  streams make JuicyPixels loop forever, so decoding untrusted files needs a
-  timeout.
+  streams make JuicyPixels loop forever
+  ([Juicy.Pixels#230](https://github.com/haskell-github-trust/Juicy.Pixels/issues/230)),
+  so decoding untrusted files needs a timeout.
 - **Encoding** to JPEG or a 256 colour palette, with or without alpha. The
   JPEG header is shared between mipmaps, as in Blizzard's own files.
 

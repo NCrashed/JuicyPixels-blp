@@ -16,7 +16,7 @@ import qualified Data.ByteString.Lazy as BSL
 deprecatedTests :: TestTree
 deprecatedTests = testGroup "deprecated encoders"
   [ testCase "match encodeBlpWith" $ do
-      let with f n = either (error . show) id $ encodeBlpWith (BlpEncodeOptions f n) img
+      let with f n = either (error . show) id $ encodeBlpWith defaultBlpEncodeOptions { blpFormat = f, blpMipLevels = n } img
       encodeBlpJpeg 90 3 img @?= with (BlpFormatJpeg 90) 3
       encodeBlpUncompressedWithAlpha 3 img @?= with (BlpFormatPaletted True) 3
       encodeBlpUncompressedWithoutAlpha 3 img @?= with (BlpFormatPaletted False) 3

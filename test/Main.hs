@@ -27,6 +27,7 @@ main = defaultMain $ testGroup "JuicyPixels-blp"
   , malformedTests
   , jpegTests
   , limitTests
+  , qualityTests
   , encoderTests
   , fileTests
   , deprecatedTests
@@ -368,7 +369,7 @@ encoderTests = testGroup "encoder"
       hasMipmaps 1 @?= 0
       hasMipmaps 3 @?= 5
   , testCase "encodeBlpWith rejects what it cannot encode" $ do
-      let opts f = BlpEncodeOptions f 16
+      let opts f = defaultBlpEncodeOptions { blpFormat = f }
           blank w h = ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 0 0 0 0) w h
           errorOf o img = either Just (const Nothing) (encodeBlpWith o img)
       errorOf (opts (BlpFormatJpeg 90)) (blank 0 4) @?= Just BlpEmptyImage
@@ -468,11 +469,11 @@ jpegBlp w h mips = blpFile defHeader { hCompression = 0, hAlphaBits = 0, hWidth 
 -- | Encode with the given format and number of levels, failing the test on
 -- an encoding error.
 enc :: BlpFormat -> Int -> DynamicImage -> BSL.ByteString
-enc format levels = either (error . show) id . encodeBlpWith (BlpEncodeOptions format levels)
+enc format levels = either (error . show) id . encodeBlpWith defaultBlpEncodeOptions { blpFormat = format, blpMipLevels = levels }
 
 -- | Write a file with two mip levels, failing the test on an encoding error.
 writeOk :: FilePath -> BlpFormat -> DynamicImage -> IO ()
-writeOk path format img = writeBlpWith path (BlpEncodeOptions format 2) img >>= either (assertFailure . show) return
+writeOk path format img = writeBlpWith path defaultBlpEncodeOptions { blpFormat = format, blpMipLevels = 2 } img >>= either (assertFailure . show) return
 
 -- | A 1x1 JPEG texture whose header claims the given size.
 inflated :: Word32 -> ByteString
@@ -498,4 +499,74 @@ limitTests = testGroup "limits and inspection"
   , testCase "blpInfo rejects what decodeBlp rejects" $ do
       assertLeft "BLP1" . blpInfo $ "BLP2" <> BS.drop 4 (withAlphaFile 4)
       assertLeft "Invalid image size" . blpInfo $ setDword 12 0 (withAlphaFile 4)
+  ]
+
+-- | PSNR in dB between two equally sized images, on premultiplied RGBA so
+-- that the colour of invisible pixels does not count.
+psnr :: Image PixelRGBA8 -> Image PixelRGBA8 -> Double
+psnr a b
+  | mse == 0 = 99
+  | otherwise = 10 * logBase 10 (255 * 255 / mse)
+  where
+    premul (PixelRGBA8 r g bl al) = let f c = fromIntegral c * fromIntegral al / 255 in [f r, f g, f bl, fromIntegral al] :: [Double]
+    errs = concat (zipWith (\p q -> zipWith (\x y -> (x - y) ^ (2 :: Int)) (premul p) (premul q)) (pixelsOf a) (pixelsOf b))
+    mse = sum errs / fromIntegral (length errs)
+
+-- | PSNR of mip level 1 of an encoded texture against the exact reference.
+level1Psnr :: BlpFormat -> Image PixelRGBA8 -> IO Double
+level1Psnr format img = do
+  levels <- decodeLevels . BSL.toStrict $ enc format 2 (ImageRGBA8 img)
+  case (levels, createMipMaps img) of
+    (_ : decoded : _, _ : reference : _) -> return $ psnr reference decoded
+    _ -> assertFailure "expected two levels"
+
+noisyTexture, smoothTexture :: Image PixelRGBA8
+noisyTexture = generateImage (\x y -> let n = fromIntegral (((x * 7919 + y * 104729) * 2654435761) `div` 8192 `mod` 256) in PixelRGBA8 (fromIntegral x + n `div` 8) (fromIntegral y + n `div` 16) n 255) 128 128
+smoothTexture = generateImage (\x y -> PixelRGBA8 (fromIntegral x) (fromIntegral y) (fromIntegral ((x + y) `div` 2)) 255) 256 256
+
+-- | A soft-edged disc on a transparent background.
+disc :: (Int -> Int -> PixelRGBA8) -> Image PixelRGBA8
+disc background = generateImage px 64 64
+  where
+    px x y = let d = sqrt (fromIntegral ((x - 32) ^ (2 :: Int) + (y - 32) ^ (2 :: Int))) :: Double
+                 a = max 0 (min 255 (round ((22 - d) * 64))) :: Int
+             in if a == 0 then background x y else PixelRGBA8 (fromIntegral (150 + x)) (fromIntegral (60 + y)) 40 (fromIntegral a)
+
+premultiplied :: Image PixelRGBA8 -> [PixelRGBA8]
+premultiplied = map (\(PixelRGBA8 r g b a) -> let f c = fromIntegral (fromIntegral c * fromIntegral a `div` 255 :: Int) in PixelRGBA8 (f r) (f g) (f b) a) . pixelsOf
+
+qualityTests :: TestTree
+qualityTests = testGroup "encoder quality and options"
+  [ testCase "paletted mipmaps are averaged, not sampled" $ do
+      noisy <- level1Psnr (BlpFormatPaletted False) noisyTexture
+      assertBool ("noisy level 1 at " ++ show noisy ++ " dB") (noisy >= 25)
+      smooth <- level1Psnr (BlpFormatPaletted False) smoothTexture
+      assertBool ("smooth level 1 at " ++ show smooth ++ " dB") (smooth >= 33)
+  , testCase "colours hidden under full transparency do not matter" $ do
+      let clean = disc (\_ _ -> PixelRGBA8 0 0 0 0)
+          dirty = disc (\x y -> PixelRGBA8 (fromIntegral $ x * 4) (fromIntegral $ y * 4) (fromIntegral $ x * y) 0)
+          levelsOf img = decodeLevels . BSL.toStrict $ enc (BlpFormatPaletted True) 16 (ImageRGBA8 img)
+      a <- levelsOf clean
+      b <- levelsOf dirty
+      map premultiplied b @?= map premultiplied a
+  , testCase "blpMaxSize halves the image until it fits" $ do
+      let wide = ImageRGB8 . convertRGB8 . ImageRGBA8 $ generateImage (\x y -> PixelRGBA8 (fromIntegral x) (fromIntegral y) 9 255) 1024 256
+          opts = defaultBlpEncodeOptions { blpMaxSize = Just 512 }
+          bs = either (error . show) BSL.toStrict $ encodeBlpWith opts wide
+      map (`getDword` bs) [12, 16] @?= [512, 128]
+      getDword 8 bs @?= 0
+      levels <- decodeLevels bs
+      take 2 (sizes levels) @?= [(512, 128), (256, 64)]
+  , testCase "blpMaxSize lets oversized images through and rejects nonsense" $ do
+      let huge = ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 1 2 3 255) 70000 1
+      fmap (BS.take 4 . BSL.toStrict) (encodeBlpWith defaultBlpEncodeOptions { blpMaxSize = Just 512 } huge) @?= Right "BLP1"
+      either Just (const Nothing) (encodeBlpWith defaultBlpEncodeOptions { blpMaxSize = Just 0 } huge) @?= Just (BlpInvalidMaxSize 0)
+  , testCase "dithering can be switched off" $ do
+      let encodeWith dither img = encodeBlpWith defaultBlpEncodeOptions { blpFormat = BlpFormatPaletted False, blpDither = dither } (ImageRGBA8 img)
+          few = generateImage (\x y -> [PixelRGBA8 10 20 30 255, PixelRGBA8 200 100 50 255] !! ((x + y) `mod` 2)) 16 16
+      assertBool "a smooth gradient differs" (encodeWith True smoothTexture /= encodeWith False smoothTexture)
+      encodeWith True few @?= encodeWith False few
+  , testCase "JPEG from fully opaque RGBA has no alpha" $ do
+      let bs = BSL.toStrict $ enc (BlpFormatJpeg 90) 1 (ImageRGBA8 smoothTexture)
+      (getDword 8 bs, getDword extraOffset bs) @?= (0, 5)
   ]

@@ -69,7 +69,7 @@ encodeGroup name format levels mkImage sizes = bgroup name
   | n <- sizes ]
 
 encodeWith :: BlpFormat -> Int -> DynamicImage -> BSL.ByteString
-encodeWith format levels = either (error . show) id . encodeBlpWith (BlpEncodeOptions format levels)
+encodeWith format levels = either (error . show) id . encodeBlpWith defaultBlpEncodeOptions { blpFormat = format, blpMipLevels = levels }
 
 -- | Square test texture with varying alpha.
 texture :: Int -> DynamicImage

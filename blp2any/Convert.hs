@@ -97,6 +97,8 @@ data ConvertOptions = ConvertOptions {
 , convertBlpKind        :: BlpKind
 , convertBlpMinMipSize  :: Int
 , convertTimeout        :: Maybe Int
+, convertDither         :: Bool
+, convertMaxSize        :: Maybe Int
 }
 
 convertFiles :: ConvertOptions -> IO ()
@@ -163,7 +165,8 @@ convertFile ConvertOptions{..} isDir inputFile = runExceptT $ do
   liftIO . createDirectoryIfMissing True $ takeDirectory outputFile
 
   let mipsCount = mipMapsUpTo convertBlpMinMipSize img
-  ExceptT $ convertionFunction distFormat convertQuality convertBlpKind outputFile mipsCount img
+  let encodeOptions = defaultBlpEncodeOptions { blpMipLevels = mipsCount, blpDither = convertDither, blpMaxSize = convertMaxSize }
+  ExceptT $ convertionFunction distFormat convertQuality convertBlpKind encodeOptions outputFile img
   pure $ inputFile <> ": Success"
 
 -- | A readable message for an encoding error.
@@ -173,6 +176,7 @@ describeEncodeError e = case e of
   BlpImageTooLarge w h -> "the image is " <> show w <> "x" <> show h <> ", above the 65535 pixel limit of BLP"
   BlpInvalidJpegQuality q -> "JPEG quality must be 1 to 100, got " <> show q
   BlpFileTooLarge -> "the BLP file would be larger than 4 GiB"
+  BlpInvalidMaxSize n -> "--max-size must be at least 1, got " <> show n
 
 -- | Run a conversion, giving up after the given number of seconds.
 withTimeout :: Maybe Int -> IO (Either String a) -> IO (Either String a)
@@ -180,14 +184,14 @@ withTimeout Nothing action = action
 withTimeout (Just seconds) action =
   fromMaybe (Left $ "gave up after " <> show seconds <> " s") <$> timeout (seconds * 1000000) action
 
-convertionFunction :: ConvertFormat -> Int -> BlpKind -> FilePath -> Int -> DynamicImage -> IO (Either String ())
-convertionFunction f quality blpKind path mipsCount img = case f of
+convertionFunction :: ConvertFormat -> Int -> BlpKind -> BlpEncodeOptions -> FilePath -> DynamicImage -> IO (Either String ())
+convertionFunction f quality blpKind encodeOptions path img = case f of
   Blp -> do
     let format = case blpKind of
           BlpJpeg -> BlpFormatJpeg quality
           BlpUncompressedWithAlpha -> BlpFormatPaletted True
           BlpUncompressedWithoutAlpha -> BlpFormatPaletted False
-    res <- writeBlpWith path (BlpEncodeOptions format mipsCount) img
+    res <- writeBlpWith path encodeOptions { blpFormat = format } img
     pure $ either (Left . describeEncodeError) Right res
   Png -> do
     res <- writeDynamicPng path img

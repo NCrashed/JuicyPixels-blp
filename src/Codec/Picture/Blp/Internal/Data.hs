@@ -86,6 +86,12 @@ data BlpEncodeOptions = BlpEncodeOptions {
   -- and values above what the image has mean the full chain down to 1x1
   -- (at most 16 levels).
 , blpMipLevels :: !Int
+  -- | Whether paletted textures are dithered. Dithering makes gradients
+  -- smoother and spoils icons and pixel art.
+, blpDither :: !Bool
+  -- | Shrink the image, halving both sides, until the larger side is at most
+  -- this many pixels. Warcraft III shows mip levels up to 512 pixels only.
+, blpMaxSize :: !(Maybe Int)
 } deriving (Eq, Show)
 
 -- | Why an image cannot be encoded.
@@ -94,4 +100,5 @@ data BlpEncodeError =
   | BlpImageTooLarge !Int !Int -- ^ Width or height is above 65535, the format's limit.
   | BlpInvalidJpegQuality !Int -- ^ JPEG quality outside 1 to 100.
   | BlpFileTooLarge -- ^ The file would exceed 4 GiB, the most its offsets can address.
+  | BlpInvalidMaxSize !Int -- ^ A 'blpMaxSize' below 1.
   deriving (Eq, Show)

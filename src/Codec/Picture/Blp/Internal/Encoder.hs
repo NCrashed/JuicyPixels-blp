@@ -8,6 +8,7 @@ module Codec.Picture.Blp.Internal.Encoder(
     encodeBlp
   , blpEncoder
   , toBlpStruct
+  , shrinkTo
   , createMipMaps
   , createMipMapsIndexed
   , scanHeader
@@ -20,12 +21,14 @@ import Codec.Picture.Types
 import Data.Binary.Put
 import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Foldable (traverse_)
+import Data.List (sortOn)
 import Data.Word
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BI
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
+import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable.Mutable as MVS
 
 import Codec.Picture.Blp.Internal.Convert
@@ -78,11 +81,11 @@ hasAlpha img = case img of
   ImageRGBA16 _ -> True
   _ -> False
 
--- | Build the BLP structure for an image with the given format and number of
--- mip levels. The number is clamped to between 1 and the image's full chain,
--- at most 16. The image's size is not checked.
-toBlpStruct :: BlpFormat -> Int -> DynamicImage -> BlpStruct
-toBlpStruct format requestedLevels img = BlpStruct {
+-- | Build the BLP structure for an image. The number of mip levels is clamped
+-- to between 1 and the image's full chain, at most 16. The image's size is
+-- not checked, and 'blpMaxSize' is applied by the caller (see 'shrinkTo').
+toBlpStruct :: BlpEncodeOptions -> DynamicImage -> BlpStruct
+toBlpStruct BlpEncodeOptions{..} img = BlpStruct {
     blpAlphaBits = if alpha then 8 else 0
   , blpWidth = fromIntegral width
   , blpHeight = fromIntegral height
@@ -91,20 +94,44 @@ toBlpStruct format requestedLevels img = BlpStruct {
   , blpExtra = if alpha then 3 else 5
   -- WorldEdit writes 5; a single level says it has no mipmaps.
   , blpHasMipmaps = if numLevels > 1 then 5 else 0
-  , blpExt = case format of
+  , blpExt = case blpFormat of
       BlpFormatJpeg quality -> toBlpJpg (fromIntegral quality) numLevels alpha rgba
-      BlpFormatPaletted _ -> toBlpPaletted alpha numLevels (convertRGB8 img) rgba
+      BlpFormatPaletted _ -> toBlpPaletted blpDither alpha numLevels (convertRGB8 img) rgba
   }
   where
-    alpha = case format of
-      BlpFormatJpeg _ -> hasAlpha img
+    -- JPEG keeps alpha only if some pixel is not fully opaque.
+    alpha = case blpFormat of
+      BlpFormatJpeg _ -> hasAlpha img && anyTransparent rgba
       BlpFormatPaletted withAlpha -> withAlpha
     -- Only built when needed: paletted textures without alpha go from RGB.
     rgba = convertRGBA8 img
     width = dynamicMap imageWidth img
     height = dynamicMap imageHeight img
     chainLength = length . takeWhile (>= 1) $ iterate (`div` 2) (max width height)
-    numLevels = max 1 . min 16 $ min chainLength requestedLevels
+    numLevels = max 1 . min 16 $ min chainLength blpMipLevels
+
+-- | Whether any pixel is less than fully opaque.
+anyTransparent :: Image PixelRGBA8 -> Bool
+anyTransparent img = go 3
+  where
+    src = imageData img
+    go i
+      | i >= VS.length src = False
+      | VS.unsafeIndex src i /= 255 = True
+      | otherwise = go (i + 4)
+
+-- | Halve an image, as its mipmaps are made, until its larger side is at most
+-- the given number of pixels. An image without alpha stays without alpha.
+shrinkTo :: Int -> DynamicImage -> DynamicImage
+shrinkTo limit img
+  | max width height <= limit = img
+  | otherwise = case dropWhile tooLarge (createMipMaps (convertRGBA8 img)) of
+      level : _ -> if hasAlpha img then ImageRGBA8 level else ImageRGB8 (convertRGB8 (ImageRGBA8 level))
+      [] -> img
+  where
+    width = dynamicMap imageWidth img
+    height = dynamicMap imageHeight img
+    tooLarge level = max (imageWidth level) (imageHeight level) > limit
 
 -- | Scale image to form the sequence of mipmaps. The first element is always the original picture.
 --
@@ -200,9 +227,9 @@ scanHeader maxheader mipmaps@(m0 : _) = BS.take common m0
     -- Safe to index: every stream is longer than the limit.
     sameAt i = all (\m -> BS.index m i == BS.index m0 i) mipmaps
 
--- | Helper to quantise colors to 256 colour pallete
-makePallette :: Image PixelRGB8 -> (Image Pixel8, Palette)
-makePallette = palettize defaultPaletteOptions
+-- | Quantise to a 256 colour palette, with or without dithering.
+makePallette :: Bool -> Image PixelRGB8 -> (Image Pixel8, Palette)
+makePallette dither = palettize defaultPaletteOptions { enableImageDithering = dither }
 
 -- | Convert palette to format that we need for BLP
 convertPalette :: Palette -> V.Vector PixelRGBA8
@@ -218,8 +245,8 @@ convertIndexed img = let
 
 -- | Quantise a picture to a 256 colour palette and create mipmaps, with an
 -- 8-bit alpha list after each index list when asked to keep alpha.
-toBlpPaletted :: Bool -> Int -> Image PixelRGB8 -> Image PixelRGBA8 -> BlpExt
-toBlpPaletted keepAlpha numLevels rgb rgba = BlpPaletted {
+toBlpPaletted :: Bool -> Bool -> Int -> Image PixelRGB8 -> Image PixelRGBA8 -> BlpExt
+toBlpPaletted dither keepAlpha numLevels rgb rgba = BlpPaletted {
     blpPalette = convertPalette palette
   , blpPalettedMipMaps = if keepAlpha
       then zipWith (<>) (convertIndexed <$> mipmaps) (convertIndexed <$> alphaMaps)
@@ -228,11 +255,66 @@ toBlpPaletted keepAlpha numLevels rgb rgba = BlpPaletted {
   where
     img'    :: Image Pixel8
     palette :: Palette
-    (img', palette) = makePallette rgb
+    -- Fully transparent pixels are made black, so the colours hidden under
+    -- them take no palette entries.
+    (img', palette) = makePallette dither $ if keepAlpha then fillTransparent rgba else rgb
 
+    -- Smaller levels are averaged in RGBA and mapped to the nearest palette
+    -- entry; picking one index per block would sample the dithering noise.
     mipmaps :: [Image Pixel8]
-    mipmaps = take numLevels $ createMipMapsIndexed img'
+    mipmaps = take numLevels $ img' : (nearestIndices palette <$> drop 1 (createMipMaps averaged))
+    averaged = if keepAlpha then rgba else opaqueRGBA8 rgba
 
     -- Alpha is coverage, not an index, so its mipmaps are averaged.
     alphaMaps :: [Image Pixel8]
     alphaMaps = take numLevels $ extractComponent PlaneAlpha <$> createMipMaps rgba
+
+-- | The RGB of an image, with every fully transparent pixel made black.
+-- Whatever colour those pixels had is invisible, and leaving it in would
+-- spend palette entries on it; a single colour costs at most one entry.
+fillTransparent :: Image PixelRGBA8 -> Image PixelRGB8
+fillTransparent = pixelMap $ \(PixelRGBA8 r g b a) -> if a == 0 then PixelRGB8 0 0 0 else PixelRGB8 r g b
+
+-- | Index of the palette entry nearest to each pixel's colour (squared RGB
+-- distance; alpha is stored separately; ties go to the lower index).
+--
+-- The entries are searched in order of red, outwards from the pixel's red,
+-- and a direction stops once the red difference alone is no better than the
+-- best match. That gives the same answer as trying every entry, with far
+-- fewer tries.
+nearestIndices :: Palette -> Image PixelRGBA8 -> Image Pixel8
+nearestIndices palette img = pixelMap nearest img
+  where
+    entries = imageData palette
+    count = VS.length entries `div` 3
+    channel i k = fromIntegral (VS.unsafeIndex entries (i * 3 + k)) :: Int
+    -- Entry indices sorted by red, and their reds.
+    byRed = VU.fromList . map snd . sortOn fst $ [((channel i 0, i), i) | i <- [0 .. count - 1]]
+    reds = VU.map (`channel` 0) byRed
+    nearest (PixelRGBA8 r8 g8 b8 _) = fromIntegral . snd $ down (start - 1) (up start (maxBound, 0))
+      where
+        r = fromIntegral r8 :: Int
+        g = fromIntegral g8 :: Int
+        b = fromIntegral b8 :: Int
+        -- First position whose red is at least the pixel's.
+        start = search 0 count
+        search lo hi
+          | lo >= hi = lo
+          | VU.unsafeIndex reds mid < r = search (mid + 1) hi
+          | otherwise = search lo mid
+          where mid = (lo + hi) `div` 2
+        consider j best@(bestDist, bestIndex) = let
+          i = VU.unsafeIndex byRed j
+          dr = channel i 0 - r
+          dg = channel i 1 - g
+          db = channel i 2 - b
+          dist = dr * dr + dg * dg + db * db
+          in if dist < bestDist || (dist == bestDist && i < bestIndex) then (dist, i) else best
+        up j best@(bestDist, _)
+          | j >= count = best
+          | let dr = VU.unsafeIndex reds j - r, dr * dr > bestDist = best
+          | otherwise = up (j + 1) (consider j best)
+        down j best@(bestDist, _)
+          | j < 0 = best
+          | let dr = r - VU.unsafeIndex reds j, dr * dr > bestDist = best
+          | otherwise = down (j - 1) (consider j best)

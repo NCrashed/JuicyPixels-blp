@@ -46,6 +46,8 @@ main = do
       <*> option blpKindR (long "blpFormat" <> short 'b' <> value BlpJpeg <> help "Specifies what BLP internal format to use when converting to BLP. Values: jpg uncompressedWithAlpha uncompressedWithoutAlpha")
       <*> option auto (long "min-mipmap-size" <> value 1 <> help "Smallest mipmap side to keep when writing BLP (default 1)")
       <*> optional (option auto (long "timeout" <> metavar "SECONDS" <> help "Give up on a file after this many seconds; some corrupt JPEG data makes decoding hang"))
+      <*> fmap not (switch (long "no-dither" <> help "Do not dither paletted BLP textures; better for icons and pixel art"))
+      <*> optional (option auto (long "max-size" <> metavar "PIXELS" <> help "When writing BLP, halve the image until its larger side is at most this; Warcraft III shows mip levels up to 512 only"))
     addCommand "stats" "Groups the BLPs in a folder by header values and saves one example of each group" (uncurry collectStatistics) $ (,)
       <$> strArgument (metavar "DIRECTORY" <> help "Input folder that stores blps (subfolders are processed)")
       <*> strArgument (metavar "OUTPUT_PATH" <> help "Here blp samples would be stored")

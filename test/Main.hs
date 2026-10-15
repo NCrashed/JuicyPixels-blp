@@ -18,6 +18,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 
 import Deprecated
+import Properties
 import Fixture
 
 main :: IO ()
@@ -29,6 +30,7 @@ main = defaultMain $ testGroup "JuicyPixels-blp"
   , encoderTests
   , fileTests
   , deprecatedTests
+  , propertyTests
   ]
 
 -- | 4x4 test texture: pixel (x, y) is palette index @y*4+x@.

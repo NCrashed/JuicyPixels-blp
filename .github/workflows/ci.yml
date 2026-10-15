@@ -69,3 +69,15 @@ jobs:
         run: nix develop .#ghc94 --command cabal build all --enable-tests --enable-benchmarks --prefer-oldest
       - name: Test
         run: nix develop .#ghc94 --command cabal test all --enable-tests --enable-benchmarks --prefer-oldest
+
+  fuzz:
+    name: Fuzz the decoder
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Update package index
+        run: nix develop .#ghc914 --command cabal update
+      # A fresh random seed every run; a failure prints --quickcheck-replay to reproduce it.
+      - name: Damaged files never make the decoder throw
+        run: nix develop .#ghc914 --command cabal test spec --enable-tests --test-show-details=direct --test-options='-p fuzz --quickcheck-tests 3000'

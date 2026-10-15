@@ -1,6 +1,18 @@
 Unreleased
 ==========
 
+blp2any:
+
+- `-s`/`--shallow` and `-p` (now also `--flatten`) were accepted but did
+  nothing; they now keep conversion to the top folder and write all output
+  into one folder.
+- A file that fails no longer aborts a batch conversion or `stats`: it is
+  reported on stderr and skipped, and `convert` prints a summary and exits
+  with status 1 if anything failed.
+- An input folder given with a trailing slash no longer sends output to the
+  root of the file system.
+- `--version` reports the package version instead of 0.1.0.0.
+
 New encoding API (the old functions still work, as deprecated wrappers):
 
 - `encodeBlpWith` and `writeBlpWith` take `BlpEncodeOptions` (a `BlpFormat`

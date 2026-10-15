@@ -85,7 +85,7 @@ minor versions.
 ```
 blp2any convert INPUT_PATH OUTPUT_PATH [-i FORMAT] [-f FORMAT] [-q QUALITY]
                 [-b jpg|uncompressedWithAlpha|uncompressedWithoutAlpha]
-                [--min-mipmap-size N] [-s] [-p]
+                [--min-mipmap-size N] [-s|--shallow] [-p|--flatten]
 blp2any stats DIRECTORY OUTPUT_PATH
 ```
 
@@ -94,15 +94,17 @@ blp2any stats DIRECTORY OUTPUT_PATH
   `bmp`.
   - Formats are inferred from the file names, or given with `-i` and `-f`.
   - With a directory it recurses unless `-s` is given, and it recreates the
-    subdirectories unless `-p` is given.
+    subdirectories unless `-p` (`--flatten`) is given. A file that fails is
+    reported on stderr and skipped; at the end it prints how many files were
+    converted and failed, and exits with status 1 if any failed.
   - When writing BLP, `-b` picks the internal format (JPEG by default) and
     `--min-mipmap-size` the smallest mip level to keep. The default is 1,
     which writes every level down to 1×1. A larger value leaves textures
     without their smallest levels; Warcraft III draws missing levels as
     transparent black, so this is only safe for interface images.
 - **`stats`** groups the BLP files in a directory by their header values
-  and copies one example of each group to `OUTPUT_PATH`. It helps when
-  hunting for unusual files.
+  and copies one example of each group to `OUTPUT_PATH`. Files it cannot
+  read are reported and skipped. It helps when hunting for unusual files.
 
 ```
 blp2any convert war3/ textures-png/ -f png

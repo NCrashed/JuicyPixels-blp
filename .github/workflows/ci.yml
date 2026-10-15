@@ -20,7 +20,7 @@ jobs:
         # devShells from flake.nix; keep in sync with `tested-with` in the cabal file.
         ghc: [ghc94, ghc96, ghc98, ghc910, ghc912, ghc914]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
 
       - name: Prepare dev shell
@@ -51,7 +51,7 @@ jobs:
     name: Nix build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
       - run: nix build --print-build-logs
       - run: nix flake check --print-build-logs
@@ -60,7 +60,7 @@ jobs:
     name: Oldest dependencies (GHC 9.4)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
       - name: Update package index
         run: nix develop .#ghc94 --command cabal update
@@ -74,7 +74,7 @@ jobs:
     name: Fuzz the decoder
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
       - name: Update package index
         run: nix develop .#ghc914 --command cabal update

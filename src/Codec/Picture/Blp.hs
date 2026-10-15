@@ -19,10 +19,21 @@ damaged, keeps the levels before it.
 -}
 module Codec.Picture.Blp(
   -- * Decoding
+  -- | Decoding allocates the full size image, whose size comes from the
+  -- file. For untrusted input, check it first with 'blpInfo' or lower
+  -- 'blpMaxPixels'.
     readBlp
   , readBlpMipmaps
   , decodeBlp
   , decodeBlpMipmaps
+  , decodeBlpWith
+  , decodeBlpMipmapsWith
+  , BlpDecodeOptions(..)
+  , defaultBlpDecodeOptions
+  -- * Inspecting
+  , blpInfo
+  , BlpInfo(..)
+  , BlpCompression(..)
   -- * Encoding
   , encodeBlpWith
   , writeBlpWith
@@ -45,6 +56,7 @@ module Codec.Picture.Blp(
 import Codec.Picture
 import Control.DeepSeq (force)
 import Control.Exception
+import Control.Monad (when)
 import Data.Bits ((.&.), shiftR)
 import Data.ByteString (ByteString)
 import System.IO.Unsafe (unsafeDupablePerformIO)
@@ -68,24 +80,49 @@ readBlp fp = decodeBlp `fmap` BS.readFile fp
 readBlpMipmaps :: FilePath -> IO (Either String [DynamicImage])
 readBlpMipmaps fp = decodeBlpMipmaps `fmap` BS.readFile fp
 
--- | Decode the full size image of a BLP file. The result is 'ImageRGBA8'.
+-- | Decode the full size image of a BLP file with 'defaultBlpDecodeOptions'.
+-- The result is 'ImageRGBA8'.
 decodeBlp :: ByteString -> Either String DynamicImage
-decodeBlp bs = do
-  is <- decodeBlpMipmaps bs
+decodeBlp = decodeBlpWith defaultBlpDecodeOptions
+
+-- | Decode the full size image of a BLP file. The result is 'ImageRGBA8'.
+decodeBlpWith :: BlpDecodeOptions -> ByteString -> Either String DynamicImage
+decodeBlpWith opts bs = do
+  is <- decodeBlpMipmapsWith opts bs
   case is of
     i : _ -> Right i
     [] -> Left "No data in BLP"
 
+-- | Decode the full size image followed by its mipmaps with
+-- 'defaultBlpDecodeOptions'. See 'decodeBlpMipmapsWith'.
+decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
+decodeBlpMipmaps = decodeBlpMipmapsWith defaultBlpDecodeOptions
+
+-- | Options for decoding.
+newtype BlpDecodeOptions = BlpDecodeOptions {
+  -- | Largest full size image to decode, in pixels. Larger files are
+  -- rejected before anything is allocated; decoding takes about four bytes
+  -- per pixel.
+  blpMaxPixels :: Int
+} deriving (Eq, Show)
+
+-- | Up to 8192x8192 pixels, about 256 MiB for the full size image.
+defaultBlpDecodeOptions :: BlpDecodeOptions
+defaultBlpDecodeOptions = BlpDecodeOptions { blpMaxPixels = 8192 * 8192 }
+
 -- | Decode the full size image followed by its mipmaps, all 'ImageRGBA8'.
 --
--- Element @ is always mip level @. Mipmaps are decoded lazily, and the
+-- Element @i@ is always mip level @i@. Mipmaps are decoded lazily, and the
 -- list stops at the first one that is damaged, so a broken mipmap never
 -- costs the levels before it. A damaged full size image fails the file.
-decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
-decodeBlpMipmaps bs = do
+decodeBlpMipmapsWith :: BlpDecodeOptions -> ByteString -> Either String [DynamicImage]
+decodeBlpMipmapsWith opts bs = do
   blp <- parseBlp bs
   let width = fromIntegral $ blpWidth blp
       height = fromIntegral $ blpHeight blp
+  when (width * height > blpMaxPixels opts) . Left $
+    "Image size " ++ show width ++ "x" ++ show height ++ " is above the limit of "
+    ++ show (blpMaxPixels opts) ++ " pixels"
   case blpExt blp of
     BlpJpeg {..} -> case blpJpegData of
       [] -> Left "No JPEG mipmap data in BLP"
@@ -151,6 +188,31 @@ safeDecodeJpeg jpeg = unsafeDupablePerformIO $ do
     Left e
       | Just async <- fromException e -> throwIO (async :: SomeAsyncException)
       | otherwise -> return . Left $ "JPEG decoding failed: " ++ displayException (e :: SomeException)
+
+-- | What a BLP file holds, read from its header without decoding any pixels.
+data BlpInfo = BlpInfo {
+    blpInfoCompression :: !BlpCompression -- ^ JPEG or paletted content
+  , blpInfoWidth :: !Int -- ^ Width of the full size image
+  , blpInfoHeight :: !Int -- ^ Height of the full size image
+  , blpInfoAlphaBits :: !Int -- ^ The @alphaBits@ header field, as stored
+  , blpInfoMipLevels :: !Int -- ^ Mip levels with usable slots, the full size image included
+  } deriving (Eq, Show)
+
+-- | Read the header of a BLP file. This checks what 'decodeBlp' checks before
+-- decoding (format, size, mipmap slots) but decodes no pixels, so it is cheap
+-- on any input. Use it to reject textures that are too large.
+blpInfo :: ByteString -> Either String BlpInfo
+blpInfo bs = do
+  blp <- parseBlp bs
+  return BlpInfo {
+      blpInfoCompression = blpCompression blp
+    , blpInfoWidth = fromIntegral $ blpWidth blp
+    , blpInfoHeight = fromIntegral $ blpHeight blp
+    , blpInfoAlphaBits = fromIntegral $ blpAlphaBits blp
+    , blpInfoMipLevels = case blpExt blp of
+        BlpJpeg {..} -> length blpJpegData
+        BlpPaletted {..} -> length blpPalettedMipMaps
+    }
 
 -- | Bytes a paletted mip level of @n@ pixels takes: the index list and the
 -- alpha list.

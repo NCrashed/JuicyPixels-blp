@@ -25,6 +25,7 @@ main = defaultMain $ testGroup "JuicyPixels-blp"
   [ uncompressedTests
   , malformedTests
   , jpegTests
+  , limitTests
   , encoderTests
   , fileTests
   , deprecatedTests
@@ -470,3 +471,29 @@ enc format levels = either (error . show) id . encodeBlpWith (BlpEncodeOptions f
 -- | Write a file with two mip levels, failing the test on an encoding error.
 writeOk :: FilePath -> BlpFormat -> DynamicImage -> IO ()
 writeOk path format img = writeBlpWith path (BlpEncodeOptions format 2) img >>= either (assertFailure . show) return
+
+-- | A 1x1 JPEG texture whose header claims the given size.
+inflated :: Word32 -> ByteString
+inflated side = setDword 12 side . setDword 16 side . BSL.toStrict $
+  enc (BlpFormatJpeg 90) 1 (ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 1 2 3 255) 1 1)
+
+limitTests :: TestTree
+limitTests = testGroup "limits and inspection"
+  [ testCase "a small file claiming a huge size is rejected before allocating" $
+      assertLeft "above the limit" . decodeBlp $ inflated 16384
+  , testCase "blpMaxPixels is checked for JPEG and paletted content" $ do
+      let limited n = decodeBlpWith (BlpDecodeOptions n)
+      assertLeft "above the limit" $ limited 255 jpegFile
+      assertBool "16x16 JPEG fits 256 pixels" . either (const False) (const True) $ limited 256 jpegFile
+      assertLeft "above the limit" $ limited 15 (withAlphaFile 4)
+      assertBool "4x4 paletted fits 16 pixels" . either (const False) (const True) $ limited 16 (withAlphaFile 4)
+  , testCase "blpInfo reads the header" $ do
+      blpInfo jpegFile @?= Right (BlpInfo BlpCompressionJPEG 16 16 8 3)
+      blpInfo (withAlphaFile 4) @?= Right (BlpInfo BlpCompressionUncompressed 4 4 8 1)
+      blpInfo withoutAlphaFile @?= Right (BlpInfo BlpCompressionUncompressed 4 4 0 1)
+  , testCase "blpInfo decodes no pixels" $
+      fmap (\i -> (blpInfoWidth i, blpInfoHeight i)) (blpInfo (inflated 16384)) @?= Right (16384, 16384)
+  , testCase "blpInfo rejects what decodeBlp rejects" $ do
+      assertLeft "BLP1" . blpInfo $ "BLP2" <> BS.drop 4 (withAlphaFile 4)
+      assertLeft "Invalid image size" . blpInfo $ setDword 12 0 (withAlphaFile 4)
+  ]

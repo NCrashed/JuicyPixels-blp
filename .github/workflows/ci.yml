@@ -30,7 +30,7 @@ jobs:
         run: nix develop .#${{ matrix.ghc }} --command cabal update
 
       - name: Resolve build plan
-        run: nix develop .#${{ matrix.ghc }} --command cabal build all --enable-tests --dry-run
+        run: nix develop .#${{ matrix.ghc }} --command cabal build all --enable-tests --enable-benchmarks --dry-run
 
       - uses: actions/cache@v4
         with:
@@ -39,10 +39,10 @@ jobs:
           restore-keys: cabal-${{ matrix.ghc }}-
 
       - name: Build
-        run: nix develop .#${{ matrix.ghc }} --command cabal build all --enable-tests --ghc-options=-Werror
+        run: nix develop .#${{ matrix.ghc }} --command cabal build all --enable-tests --enable-benchmarks --ghc-options=-Werror
 
       - name: Test
-        run: nix develop .#${{ matrix.ghc }} --command cabal test all --enable-tests --ghc-options=-Werror
+        run: nix develop .#${{ matrix.ghc }} --command cabal test all --enable-tests --enable-benchmarks --ghc-options=-Werror
 
       - name: Check package
         run: nix develop .#${{ matrix.ghc }} --command cabal check

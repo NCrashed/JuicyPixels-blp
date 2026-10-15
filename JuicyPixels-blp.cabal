@@ -84,10 +84,25 @@ executable blp2any
     , JuicyPixels
     , JuicyPixels-blp
     , optparse-simple       >= 0.0.3  && < 0.2
-    , transformers
+    , transformers          >= 0.5    && < 0.7
 
   default-extensions:
     RecordWildCards
+
+benchmark bench
+  import:              warnings
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      bench
+  main-is:             Main.hs
+  default-language:    Haskell2010
+  ghc-options:         -rtsopts -with-rtsopts=-A32m
+  build-depends:
+      base
+    , bytestring
+    , deepseq
+    , JuicyPixels
+    , JuicyPixels-blp
+    , tasty-bench           >= 0.3    && < 0.5
 
 test-suite spec
   import:              warnings

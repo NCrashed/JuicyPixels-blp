@@ -55,3 +55,17 @@ jobs:
       - uses: cachix/install-nix-action@v31
       - run: nix build --print-build-logs
       - run: nix flake check --print-build-logs
+
+  oldest:
+    name: Oldest dependencies (GHC 9.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Update package index
+        run: nix develop .#ghc94 --command cabal update
+      # The lower bounds in the cabal file are the versions this job resolves to.
+      - name: Build
+        run: nix develop .#ghc94 --command cabal build all --enable-tests --enable-benchmarks --prefer-oldest
+      - name: Test
+        run: nix develop .#ghc94 --command cabal test all --enable-tests --enable-benchmarks --prefer-oldest

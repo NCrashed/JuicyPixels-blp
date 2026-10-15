@@ -120,6 +120,8 @@ blp2any convert icons/ icons-blp/ -i png -f blp -b jpg -q 85
 
 ## Building and testing
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for what a pull request needs.
+
 With [Nix](https://nixos.org) (flakes enabled), each supported GHC has its
 own development shell:
 

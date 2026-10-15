@@ -50,10 +50,10 @@ withAlphaPixel k = PixelRGBA8 (k * 16) (255 - k * 16) (k * 3) (k * 16 + 15)
 withoutAlphaPixel k = PixelRGBA8 (k * 16) (255 - k * 16) (k * 3) 255
 
 withAlphaFile :: Word32 -> ByteString
-withAlphaFile ptype = uncompressed defHeader { hPictureType = ptype } (palette 256) [indices <> alphaPlane]
+withAlphaFile ptype = uncompressed defHeader { hExtra = ptype } (palette 256) [indices <> alphaPlane]
 
 withoutAlphaFile :: ByteString
-withoutAlphaFile = uncompressed defHeader { hFlags = 0, hPictureType = 5 } (palette 256) [indices]
+withoutAlphaFile = uncompressed defHeader { hAlphaBits = 0, hExtra = 5 } (palette 256) [indices]
 
 pixelsOf :: Image PixelRGBA8 -> [PixelRGBA8]
 pixelsOf img = [pixelAt img x y | y <- [0 .. imageHeight img - 1], x <- [0 .. imageWidth img - 1]]
@@ -81,32 +81,32 @@ uncompressedTests = testGroup "uncompressed"
   , testCase "with alpha, picture type 3" $ assertPixels withAlphaPixel (withAlphaFile 3)
   , testCase "picture type 0 decodes as with alpha (#10)" $ assertPixels withAlphaPixel (withAlphaFile 0)
   , testCase "alphaBits 8 keeps alpha whatever extra says (#25)" $
-      assertPixels withAlphaPixel $ uncompressed defHeader { hPictureType = 5 } (palette 256) [indices <> alphaPlane]
+      assertPixels withAlphaPixel $ uncompressed defHeader { hExtra = 5 } (palette 256) [indices <> alphaPlane]
   , testCase "extra has no effect (#25)" $
       forM_ [0, 1, 2, 3, 4, 5, 6, 7, 99] $ \extra ->
         assertPixels withAlphaPixel (withAlphaFile extra)
   , testCase "alphaBits 0 ignores a trailing alpha list (#25)" $
-      assertPixels withoutAlphaPixel $ uncompressed defHeader { hFlags = 0, hPictureType = 4 } (palette 256) [indices <> alphaPlane]
+      assertPixels withoutAlphaPixel $ uncompressed defHeader { hAlphaBits = 0, hExtra = 4 } (palette 256) [indices <> alphaPlane]
   , testCase "1-bit alpha, least significant bit first (#25)" $ do
-      let bs = uncompressed defHeader { hFlags = 1 } (palette 256) [indices <> BS.pack [0x0f, 0xf0]]
+      let bs = uncompressed defHeader { hAlphaBits = 1 } (palette 256) [indices <> BS.pack [0x0f, 0xf0]]
           on k = k < 4 || k >= 12
       assertPixels (\k -> setAlpha (if on k then 255 else 0) (withoutAlphaPixel k)) bs
   , testCase "4-bit alpha, low nibble first (#25)" $ do
       let nibbles = BS.pack [fromIntegral (2 * j) + 16 * fromIntegral (2 * j + 1) | j <- [0 .. 7 :: Int]]
-          bs = uncompressed defHeader { hFlags = 4 } (palette 256) [indices <> nibbles]
+          bs = uncompressed defHeader { hAlphaBits = 4 } (palette 256) [indices <> nibbles]
       assertPixels (\k -> setAlpha (k * 17) (withoutAlphaPixel k)) bs
   , testCase "invalid alphaBits counts as no alpha (#25)" $
-      assertPixels withoutAlphaPixel $ uncompressed defHeader { hFlags = 3 } (palette 256) [indices <> alphaPlane]
+      assertPixels withoutAlphaPixel $ uncompressed defHeader { hAlphaBits = 3 } (palette 256) [indices <> alphaPlane]
   , testCase "without alpha, picture type 5" $ assertPixels withoutAlphaPixel withoutAlphaFile
   , testCase "without alpha ignores the palette's fourth byte (#14)" $
-      assertPixels withoutAlphaPixel $ uncompressed defHeader { hFlags = 0, hPictureType = 5 }
+      assertPixels withoutAlphaPixel $ uncompressed defHeader { hAlphaBits = 0, hExtra = 5 }
         [(b, g, r, 255) | (b, g, r, _) <- palette 256] [indices]
   , testCase "labelled with alpha, mip 0 holds only indices (#8)" $
       assertPixels withoutAlphaPixel $ uncompressed defHeader (palette 256) [indices]
   , testCase "labelled with alpha, mip 0 between one and two planes (#8)" $
       assertPixels withoutAlphaPixel $ uncompressed defHeader (palette 256) [indices <> "pad"]
   , testCase "palette shorter than 256 entries (#6)" $
-      assertPixels withoutAlphaPixel $ uncompressed defHeader { hFlags = 0, hPictureType = 5 } (palette 16) [indices]
+      assertPixels withoutAlphaPixel $ uncompressed defHeader { hAlphaBits = 0, hExtra = 5 } (palette 16) [indices]
   , testCase "mipmap slot past the end of the file is skipped (#7)" $ do
       let bs = setDword (offsetSlot 1) 100000 . setDword (sizeSlot 1) 16 $ withAlphaFile 4
       assertPixels withAlphaPixel bs
@@ -126,21 +126,21 @@ uncompressedTests = testGroup "uncompressed"
       pixelsOf (levels !! 1) @?= [PixelRGBA8 (k * 16) (255 - k * 16) (k * 3) (k + 4) | k <- [1 .. 4]]
       pixelsOf (levels !! 2) @?= [PixelRGBA8 144 111 27 10]
   , testCase "without alpha mip levels have their own sizes (#13)" $ do
-      let bs = uncompressed defHeader { hFlags = 0, hPictureType = 5 } (palette 256) [indices, "\1\2\3\4", "\9"]
+      let bs = uncompressed defHeader { hAlphaBits = 0, hExtra = 5 } (palette 256) [indices, "\1\2\3\4", "\9"]
       levels <- decodeLevels bs
       sizes levels @?= [(4, 4), (2, 2), (1, 1)]
       pixelsOf (levels !! 1) @?= map withoutAlphaPixel [1 .. 4]
   , testCase "non-square texture halves each side down to 1 (#13)" $ do
-      let bs = uncompressed defHeader { hFlags = 0, hPictureType = 5, hWidth = 4, hHeight = 2 } (palette 256)
+      let bs = uncompressed defHeader { hAlphaBits = 0, hExtra = 5, hWidth = 4, hHeight = 2 } (palette 256)
             [BS.take 8 indices, "\1\2", "\3"]
       levels <- decodeLevels bs
       sizes levels @?= [(4, 2), (2, 1), (1, 1)]
   , testCase "mip level shorter than its size ends the list (#13)" $ do
-      let bs = uncompressed defHeader { hFlags = 0, hPictureType = 5 } (palette 256) [indices, "\1\2", "\9"]
+      let bs = uncompressed defHeader { hAlphaBits = 0, hExtra = 5 } (palette 256) [indices, "\1\2", "\9"]
       levels <- decodeLevels bs
       sizes levels @?= [(4, 4)]
   , testCase "mip 0 shorter than the image is an error, not an exception (#13)" $
-      assertLeft "too short" . decodeBlp $ uncompressed defHeader { hFlags = 0, hPictureType = 5 } (palette 256) [BS.take 8 indices]
+      assertLeft "too short" . decodeBlp $ uncompressed defHeader { hAlphaBits = 0, hExtra = 5 } (palette 256) [BS.take 8 indices]
   ]
 
 malformedTests :: TestTree
@@ -158,7 +158,7 @@ malformedTests = testGroup "malformed input"
   , testCase "JPEG header longer than the file" $
       assertLeft "jpeg header" . decodeBlp $ setDword headerSize 100000 jpegFile
   , testCase "width or height outside 1..65535 is an error" $ do
-      let sized w h = uncompressed defHeader { hFlags = 0, hWidth = w, hHeight = h } (palette 256) [BS.replicate 4 0]
+      let sized w h = uncompressed defHeader { hAlphaBits = 0, hWidth = w, hHeight = h } (palette 256) [BS.replicate 4 0]
       assertLeft "Invalid image size" . decodeBlp $ sized 0xFFFFFFFF 0xFFFFFFFF
       assertLeft "Invalid image size" . decodeBlp $ sized 0 4
       assertLeft "Invalid image size" . decodeBlp $ sized 4 65536
@@ -211,7 +211,7 @@ jpegTests = testGroup "jpeg"
       assertBool "every pixel opaque" $ all (\(PixelRGBA8 _ _ _ a) -> a == 255) (pixelsOf img)
   , testCase "picture type 6 decodes like the original (#5)" $ do
       orig <- decodeRGBA jpegFile
-      img <- decodeRGBA (setDword pictureTypeOffset 6 jpegFile)
+      img <- decodeRGBA (setDword extraOffset 6 jpegFile)
       pixelsOf img @?= pixelsOf orig
   , testCase "broken middle mip keeps only the levels before it (#9)" $ do
       levels <- decodeLevels (setDword (sizeSlot 1) 12 jpegFile)
@@ -247,7 +247,7 @@ jpegTests = testGroup "jpeg"
   , testCase "three-component JPEG decodes to RGBA" $ do
       let rgb = generateImage (\x y -> PixelRGB8 (fromIntegral $ x * 16) (fromIntegral $ y * 16) 128) 16 16
           jpeg = BSL.toStrict . encodeJpeg $ (convertImage rgb :: Image PixelYCbCr8)
-          bs = blpFile defHeader { hCompression = 0, hFlags = 0, hWidth = 16, hHeight = 16, hPictureType = 2 }
+          bs = blpFile defHeader { hCompression = 0, hAlphaBits = 0, hWidth = 16, hHeight = 16, hExtra = 2 }
             [(fromIntegral headerSize + 4, fromIntegral $ BS.length jpeg)] ("\0\0\0\0" <> jpeg)
       dyn <- either (assertFailure . ("decodeBlp: " ++)) return $ decodeBlp bs
       case dyn of
@@ -287,12 +287,12 @@ encoderTests = testGroup "encoder"
   [ testCase "with alpha writes the expected header" $ do
       let bs = BSL.toStrict $ enc (BlpFormatPaletted True) 3 (ImageRGBA8 gradient)
       map (`getDword` bs) [4, 8, 12, 16] @?= [1, 8, 16, 16]
-      getDword pictureTypeOffset bs @?= 3
+      getDword extraOffset bs @?= 3
       map (\i -> getDword (sizeSlot i) bs) [0 .. 2] @?= [512, 128, 32]
   , testCase "without alpha writes the expected header" $ do
       let bs = BSL.toStrict $ enc (BlpFormatPaletted False) 3 (ImageRGB8 $ convertRGB8 (ImageRGBA8 gradient))
       map (`getDword` bs) [4, 8] @?= [1, 0]
-      getDword pictureTypeOffset bs @?= 5
+      getDword extraOffset bs @?= 5
       map (\i -> getDword (sizeSlot i) bs) [0 .. 2] @?= [256, 64, 16]
   , testCase "with alpha round-trips mip 0" $ do
       img <- decodeRGBA . BSL.toStrict $ enc (BlpFormatPaletted True) 1 (ImageRGBA8 gradient)
@@ -308,7 +308,7 @@ encoderTests = testGroup "encoder"
       sizes levels @?= [(16, 16), (8, 8), (4, 4)]
   , testCase "JPEG alpha flag and picture type follow the input format" $ do
       let header dyn = let bs = BSL.toStrict $ enc (BlpFormatJpeg 90) 1 dyn
-                       in (getDword 8 bs, getDword pictureTypeOffset bs)
+                       in (getDword 8 bs, getDword extraOffset bs)
           rgba = convertRGBA8 (ImageRGBA8 gradient)
       header (ImageY8 $ pixelMap (\(PixelRGBA8 r _ _ _) -> r) rgba) @?= (0, 5)
       header (ImageYA8 $ pixelMap (\(PixelRGBA8 r _ _ a) -> PixelYA8 r a) rgba) @?= (8, 3)
@@ -316,13 +316,13 @@ encoderTests = testGroup "encoder"
       header (ImageRGBA16 $ pixelMap (\(PixelRGBA8 r g b a) -> PixelRGBA16 (w16 r) (w16 g) (w16 b) (w16 a)) rgba) @?= (8, 3)
   , testCase "without alpha drops the alpha of an RGBA input" $ do
       let bs = BSL.toStrict $ enc (BlpFormatPaletted False) 1 (ImageRGBA8 gradient)
-      (getDword 8 bs, getDword pictureTypeOffset bs) @?= (0, 5)
+      (getDword 8 bs, getDword extraOffset bs) @?= (0, 5)
       img <- decodeRGBA bs
       let d = maxDiff opaqueGradient img
       assertBool ("max channel difference " ++ show d) (d <= 8)
   , testCase "with alpha keeps an alpha plane for an RGB input" $ do
       let bs = BSL.toStrict $ enc (BlpFormatPaletted True) 1 (ImageRGB8 $ convertRGB8 (ImageRGBA8 opaqueGradient))
-      (getDword 8 bs, getDword pictureTypeOffset bs) @?= (8, 3)
+      (getDword 8 bs, getDword extraOffset bs) @?= (8, 3)
       img <- decodeRGBA bs
       let d = maxDiff opaqueGradient img
       assertBool ("max channel difference " ++ show d) (d <= 8)
@@ -458,7 +458,7 @@ badJpeg = BS.pack
 -- | JPEG BLP without alpha and with an empty shared header, holding the given
 -- streams as its mip levels.
 jpegBlp :: Word32 -> Word32 -> [ByteString] -> ByteString
-jpegBlp w h mips = blpFile defHeader { hCompression = 0, hFlags = 0, hWidth = w, hHeight = h } slots ("\0\0\0\0" <> BS.concat mips)
+jpegBlp w h mips = blpFile defHeader { hCompression = 0, hAlphaBits = 0, hWidth = w, hHeight = h } slots ("\0\0\0\0" <> BS.concat mips)
   where
     sizes' = map (fromIntegral . BS.length) mips
     slots = zip (scanl (+) (fromIntegral headerSize + 4) sizes') sizes'

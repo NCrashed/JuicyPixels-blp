@@ -1,32 +1,37 @@
 module File(
     forEachFile
-  , forEachFile'
+  , tryAll
   ) where
 
+import Control.Exception
+import Control.Monad
 import System.Directory
 import System.FilePath
-import Control.Monad 
 
--- | Performs width traversion of given directory
-forEachFile :: FilePath -- ^ Directory to traverse
+-- | Fold over the files of a directory that pass a predicate, breadth first.
+forEachFile :: Bool -- ^ Whether to descend into subdirectories
+  -> FilePath -- ^ Directory to traverse
   -> (FilePath -> Bool) -- ^ File selector
-  -> (a -> FilePath -> IO a) -- ^ Function to perform (mimics fold)
-  -> a -- ^ Start value of acum
-  -> IO a -- ^ Last value of accum
-forEachFile path predf f acc = go acc path
+  -> (a -> FilePath -> IO a) -- ^ Step, called once per file
+  -> a -- ^ Initial accumulator
+  -> IO a
+forEachFile recurse path predf f acc = go acc path
   where
-    go a inputPath = do 
-      names <- fmap (\p -> inputPath ++ "/" ++ p) <$> getDirectoryContents inputPath
-      dirs <- filter (not . isSystemDir) <$> filterM doesDirectoryExist names
+    go a dir = do
+      names <- fmap (dir </>) <$> listDirectory dir
       files <- filter predf <$> filterM doesFileExist names
-      a' <- foldM f a files 
-      a' `seq` foldM go a' dirs
+      a' <- foldM f a files
+      if recurse
+        then filterM doesDirectoryExist names >>= foldM go a'
+        else return a'
 
-    isSystemDir s = let bs = takeFileName s in bs == "." || bs == ".."
-
--- | Performs width traversion of given directory, simplified versino of forEachFile
-forEachFile' :: FilePath -- ^ Directory to traverse
-  -> (FilePath -> Bool) -- ^ File selector
-  -> (FilePath -> IO ()) -- ^ Function to perform
-  -> IO ()
-forEachFile' path predf f = forEachFile path predf (const f) ()
+-- | Run an action, turning any synchronous exception into 'Left'.
+-- Asynchronous exceptions (such as Ctrl+C) are rethrown.
+tryAll :: IO a -> IO (Either String a)
+tryAll action = do
+  result <- try action
+  case result of
+    Right a -> return (Right a)
+    Left e
+      | Just async <- fromException e -> throwIO (async :: SomeAsyncException)
+      | otherwise -> return . Left $ displayException (e :: SomeException)

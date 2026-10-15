@@ -51,7 +51,7 @@ What the library does with these fields:
   by this field, as older versions of this library did, read the files
   correctly.
 - **hasMipmaps.** The decoder ignores it and goes by the mipmap slots. The
-  encoder always writes 5, which is non-zero.
+  encoder writes 5, or 0 when it writes a single level.
 
 ## Mipmaps
 
@@ -83,7 +83,8 @@ are stored but skipped.
 **Encoder.**
 
 - It writes as many levels as asked for, at least mip 0 and at most the full
-  chain down to 1×1. Downscaling averages 2×2 blocks of colour and alpha,
+  chain down to 1×1. Unused slots are zero, and levels are encoded only
+  if they are written. Downscaling averages 2×2 blocks of colour and alpha,
   reusing the edge pixel on odd or one-pixel sides, and takes the top-left
   pixel for palette indices
   ([#26](https://github.com/NCrashed/JuicyPixels-blp/issues/26)).

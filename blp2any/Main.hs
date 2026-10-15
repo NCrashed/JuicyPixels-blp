@@ -19,9 +19,9 @@ readMPure desc f = do
 convertFormatR :: ReadM ConvertFormat
 convertFormatR = readMPure "format" readConvertFormat
 
--- | How to parse BlpFormat
-blpFormatR :: ReadM BlpFormat
-blpFormatR = readMPure "blp format" readBlpFormat
+-- | How to parse BlpKind
+blpKindR :: ReadM BlpKind
+blpKindR = readMPure "blp format" readBlpKind
 
 main :: IO ()
 main = do
@@ -34,7 +34,7 @@ main = do
       <*> option auto (long "quality" <> short 'q' <> value 90 <> help "Quality level for formats with lossy compression (default 90)")
       <*> fmap not (switch (long "notPreserveStructure" <> short 'p' <> help "Will not produce subfolders while batch converting" ))
       <*> switch (long "shallow" <> short 's' <> help "Not look into subfolders while batch converting")
-      <*> option blpFormatR (long "blpFormat" <> short 'b' <> value BlpJpeg <> help "Specifies what BLP internal format to use when converting to BLP. Values: jpg uncompressedWithAlpha uncompressedWithoutAlpha")
+      <*> option blpKindR (long "blpFormat" <> short 'b' <> value BlpJpeg <> help "Specifies what BLP internal format to use when converting to BLP. Values: jpg uncompressedWithAlpha uncompressedWithoutAlpha")
       <*> option auto (long "min-mipmap-size" <> value 1 <> help "Smallest mipmap side to keep when writing BLP (default 1)")
     addCommand "stats" "Groups the BLPs in a folder by header values and saves one example of each group" (uncurry collectStatistics) $ (,)
       <$> strArgument (metavar "DIRECTORY" <> help "Input folder that stores blps (subfolders are processed)")

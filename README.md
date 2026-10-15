@@ -24,21 +24,28 @@ main = do
   Right img <- readBlp "war3mapMap.blp"
   writePng "war3mapMap.png" (convertRGBA8 img)
 
-  -- Encode: JPEG at quality 90, with all mip levels the encoder makes.
+  -- Encode: JPEG at quality 90 with every mip level down to 1x1.
   Right png <- readImage "icon.png"
-  writeBlpJpeg "icon.blp" 90 (mipMapsUpTo 1 png) png
+  result <- writeBlpWith "icon.blp" defaultBlpEncodeOptions png
+  either print return result
 ```
 
 - `readBlp` / `decodeBlp` return the full size image.
 - `readBlpMipmaps` / `decodeBlpMipmaps` return the image followed by its
   mipmaps.
-- Three encoders are available:
-  - `encodeBlpJpeg` / `writeBlpJpeg`: JPEG. The texture gets alpha when the
-    input image has it.
-  - `encodeBlpUncompressedWithAlpha` / `writeBlpUncompressedWithAlpha`: 256
-    colour palette with 8-bit alpha.
-  - `encodeBlpUncompressedWithoutAlpha` / `writeBlpUncompressedWithoutAlpha`:
-    256 colour palette, no alpha.
+- `encodeBlpWith` / `writeBlpWith` encode with `BlpEncodeOptions`:
+  - `blpFormat`: `BlpFormatJpeg quality` (1 to 100; the texture gets alpha
+    when the image has it) or `BlpFormatPaletted withAlpha` (256 colour
+    palette, with 8-bit alpha or none).
+  - `blpMipLevels`: how many mip levels to write, clamped to 1 and the full
+    chain. `mipMapsUpTo` computes it from a smallest side length.
+
+  They return `Left` for images they cannot encode (`BlpEncodeError`): an
+  empty image, a side above 65535, an invalid JPEG quality, or a file over
+  4 GiB.
+- The older `encodeBlpJpeg`, `encodeBlpUncompressedWithAlpha`,
+  `encodeBlpUncompressedWithoutAlpha` and their `write` variants are
+  deprecated wrappers around `encodeBlpWith`.
 
 The `Codec.Picture.Blp.Internal.*` modules expose the parser, encoder and
 file structure. They are useful for tools, but their API may change between
@@ -70,8 +77,8 @@ minor versions.
   ([#3](https://github.com/NCrashed/JuicyPixels-blp/issues/3)).
 - **Lossy palette.** Uncompressed encoding quantises to 256 colours with
   dithering, so it is lossy for images with more colours.
-- **Fixed header values.** The encoder always writes `extra` and
-  `hasMipmaps` as 3 or 5 and 5.
+- **Fixed header values.** The encoder writes `extra` as 3 with alpha and 5
+  without, and `hasMipmaps` as 5, or 0 for a single level.
 
 ## blp2any
 

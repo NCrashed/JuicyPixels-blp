@@ -13,6 +13,9 @@ damaged, keeps the levels before it.
 
 > Right img <- readBlp "war3mapMap.blp"
 > writePng "war3mapMap.png" (convertRGBA8 img)
+>
+> Right png <- readImage "icon.png"
+> result <- writeBlpWith "icon.blp" defaultBlpEncodeOptions png
 -}
 module Codec.Picture.Blp(
   -- * Decoding
@@ -21,16 +24,22 @@ module Codec.Picture.Blp(
   , decodeBlp
   , decodeBlpMipmaps
   -- * Encoding
-  -- | The mipmap count passed to the encoders is the number of levels to
-  -- write, mip 0 included. It is clamped to at least one, and asking for
-  -- more levels than the image has stops at 1x1. 'mipMapsUpTo' computes it from a minimum side length.
+  , encodeBlpWith
+  , writeBlpWith
+  , BlpEncodeOptions(..)
+  , defaultBlpEncodeOptions
+  , BlpFormat(..)
+  , BlpEncodeError(..)
+  , mipMapsUpTo
+  -- * Deprecated encoders
+  -- | These predate 'encodeBlpWith'. They clamp the JPEG quality to 1..100
+  -- and throw on images 'encodeBlpWith' rejects.
   , writeBlpJpeg
   , writeBlpUncompressedWithAlpha
   , writeBlpUncompressedWithoutAlpha
   , encodeBlpJpeg
   , encodeBlpUncompressedWithAlpha
   , encodeBlpUncompressedWithoutAlpha
-  , mipMapsUpTo
   ) where
 
 import Codec.Picture
@@ -180,55 +189,80 @@ palettedLevels width height alphaBits palette mips
       _ -> 255
 
 -- | Number of mip levels, mip 0 included, whose larger side is at least the
--- given length; never less than one. Pass it to the encoders as the mipmap
--- count. With 1 that is the full chain down to 1x1: five levels for 16x16,
--- seven for 64x16. With 4, a 16x16 texture keeps three levels.
+-- given length; never less than one and at most 16. Use it as 'blpMipLevels'.
+-- With 1 that is the full chain down to 1x1: five levels for 16x16, seven
+-- for 64x16. With 4, a 16x16 texture keeps three levels.
 mipMapsUpTo :: Int -- ^ Smallest side length to keep (2, 4, 16, ...)
   -> DynamicImage -- ^ Image the mipmaps are made for
   -> Int
-mipMapsUpTo minSize img = max 1 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) larger
+mipMapsUpTo minSize img = max 1 . min 16 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) larger
   where
     larger = max (dynamicMap imageWidth img) (dynamicMap imageHeight img)
 
+-- | JPEG at quality 90 with the full mip chain.
+defaultBlpEncodeOptions :: BlpEncodeOptions
+defaultBlpEncodeOptions = BlpEncodeOptions {
+    blpFormat = BlpFormatJpeg 90
+  , blpMipLevels = 16
+  }
+
+-- | Encode an image as a BLP1 file.
+encodeBlpWith :: BlpEncodeOptions -> DynamicImage -> Either BlpEncodeError BSL.ByteString
+encodeBlpWith BlpEncodeOptions{..} img
+  | w < 1 || h < 1 = Left BlpEmptyImage
+  | w > 65535 || h > 65535 = Left $ BlpImageTooLarge w h
+  | BlpFormatJpeg quality <- blpFormat, quality < 1 || quality > 100 = Left $ BlpInvalidJpegQuality quality
+  | BSL.length file > 0xFFFFFFFF = Left BlpFileTooLarge
+  | otherwise = Right file
+  where
+    w = dynamicMap imageWidth img
+    h = dynamicMap imageHeight img
+    file = encodeBlp (toBlpStruct blpFormat blpMipLevels img)
+
+-- | Encode an image with 'encodeBlpWith' and write it to a file.
+writeBlpWith :: FilePath -> BlpEncodeOptions -> DynamicImage -> IO (Either BlpEncodeError ())
+writeBlpWith fp opts img = traverse (BSL.writeFile fp) (encodeBlpWith opts img)
+
 -- | Encode with 'encodeBlpJpeg' and write the result to a file.
 writeBlpJpeg :: FilePath -> Int -> Int -> DynamicImage -> IO ()
-writeBlpJpeg fp quality numMips img = do
-  let bs = encodeBlpJpeg quality numMips img
-  BSL.writeFile fp bs
+writeBlpJpeg fp quality numMips img = BSL.writeFile fp $ encodeBlpJpeg quality numMips img
+{-# DEPRECATED writeBlpJpeg "Use writeBlpWith" #-}
 
 -- | Encode with 'encodeBlpUncompressedWithAlpha' and write the result to a file.
 writeBlpUncompressedWithAlpha :: FilePath -> Int -> DynamicImage -> IO ()
-writeBlpUncompressedWithAlpha fp numMips img = do
-  let bs = encodeBlpUncompressedWithAlpha numMips img
-  BSL.writeFile fp bs
+writeBlpUncompressedWithAlpha fp numMips img = BSL.writeFile fp $ encodeBlpUncompressedWithAlpha numMips img
+{-# DEPRECATED writeBlpUncompressedWithAlpha "Use writeBlpWith" #-}
 
 -- | Encode with 'encodeBlpUncompressedWithoutAlpha' and write the result to a
 -- file.
 writeBlpUncompressedWithoutAlpha :: FilePath -> Int -> DynamicImage -> IO ()
-writeBlpUncompressedWithoutAlpha fp numMips img = do
-  let bs = encodeBlpUncompressedWithoutAlpha numMips img
-  BSL.writeFile fp bs
+writeBlpUncompressedWithoutAlpha fp numMips img = BSL.writeFile fp $ encodeBlpUncompressedWithoutAlpha numMips img
+{-# DEPRECATED writeBlpUncompressedWithoutAlpha "Use writeBlpWith" #-}
 
--- | Encode as a JPEG compressed BLP. The texture gets an alpha plane when the
--- input image has an alpha channel.
-encodeBlpJpeg :: Int -- ^ JPEG quality, 0 to 100
+-- | Encode as a JPEG compressed BLP; see 'BlpFormatJpeg'.
+encodeBlpJpeg :: Int -- ^ JPEG quality, clamped to 1..100
   -> Int -- ^ Number of mip levels to write
   -> DynamicImage
   -> BSL.ByteString
-encodeBlpJpeg quality numMips = encodeBlp numMips . toBlpStruct BlpCompressionJPEG quality numMips
+encodeBlpJpeg quality numMips =
+  orThrow "encodeBlpJpeg" . encodeBlpWith (BlpEncodeOptions (BlpFormatJpeg (max 1 (min 100 quality))) numMips)
+{-# DEPRECATED encodeBlpJpeg "Use encodeBlpWith with BlpFormatJpeg" #-}
 
--- | Encode as an uncompressed paletted BLP with an alpha plane. An input
--- without alpha gets a fully opaque plane. Colours are quantised to 256.
+-- | Encode with a 256 colour palette and 8-bit alpha; see 'BlpFormatPaletted'.
 encodeBlpUncompressedWithAlpha :: Int -- ^ Number of mip levels to write
   -> DynamicImage
   -> BSL.ByteString
 encodeBlpUncompressedWithAlpha numMips =
-  encodeBlp numMips . toBlpStruct BlpCompressionUncompressed 100 numMips . ImageRGBA8 . convertRGBA8
+  orThrow "encodeBlpUncompressedWithAlpha" . encodeBlpWith (BlpEncodeOptions (BlpFormatPaletted True) numMips)
+{-# DEPRECATED encodeBlpUncompressedWithAlpha "Use encodeBlpWith with BlpFormatPaletted True" #-}
 
--- | Encode as an uncompressed paletted BLP without alpha. The alpha channel
--- of the input, if any, is dropped. Colours are quantised to 256.
+-- | Encode with a 256 colour palette and no alpha; see 'BlpFormatPaletted'.
 encodeBlpUncompressedWithoutAlpha :: Int -- ^ Number of mip levels to write
   -> DynamicImage
   -> BSL.ByteString
 encodeBlpUncompressedWithoutAlpha numMips =
-  encodeBlp numMips . toBlpStruct BlpCompressionUncompressed 100 numMips . ImageRGB8 . convertRGB8
+  orThrow "encodeBlpUncompressedWithoutAlpha" . encodeBlpWith (BlpEncodeOptions (BlpFormatPaletted False) numMips)
+{-# DEPRECATED encodeBlpUncompressedWithoutAlpha "Use encodeBlpWith with BlpFormatPaletted False" #-}
+
+orThrow :: String -> Either BlpEncodeError a -> a
+orThrow name = either (\e -> error $ name ++ ": " ++ show e) id

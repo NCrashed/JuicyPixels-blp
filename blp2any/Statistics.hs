@@ -6,7 +6,8 @@ module Statistics(
 
 import Codec.Picture.Blp.Internal.Data
 import Codec.Picture.Blp.Internal.Parser
-import Control.Monad 
+import Control.Monad
+import Data.Char (toLower)
 import Data.Word 
 import System.Directory
 import System.FilePath
@@ -27,7 +28,7 @@ collectSamples :: FilePath -> IO StatMap
 collectSamples dir = do 
   f <- doesDirectoryExist dir
   unless f $ fail $ "Provided directory " ++ dir ++ " doesn't exists!"
-  forEachFile True dir ((".blp" ==) . takeExtension) collectSample M.empty
+  forEachFile True dir ((".blp" ==) . map toLower . takeExtension) collectSample M.empty
 
 collectSample :: StatMap -> FilePath -> IO StatMap
 collectSample stats inputFile = do
@@ -55,8 +56,7 @@ printStatistics dir stats = do
     createDirectoryIfMissing True dir
     forM_ (M.toList stats) $ \((compression, alphaBits, extra, hasMipmaps), (path, i)) -> do 
       let postfix = L.intercalate "-" [show compression, "alpha" ++ show alphaBits, "extra" ++ show extra, "mips" ++ show hasMipmaps]
-      copyFile path $ dir ++ "/" ++ dropExtension (takeFileName path) ++ "-"
-        ++ postfix ++ ".blp"
+      copyFile path $ dir </> dropExtension (takeFileName path) ++ "-" ++ postfix ++ ".blp"
       putStrLn $ postfix ++ ": " ++ show i ++ " images"
 
 collectStatistics :: FilePath -> FilePath -> IO ()

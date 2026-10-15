@@ -20,6 +20,7 @@ import System.Directory
 import System.Exit
 import System.FilePath
 import System.IO
+import System.Timeout (timeout)
 
 import qualified Data.ByteString as BS
 
@@ -63,6 +64,7 @@ readConvertFormat s = case toLower <$> s of
   "jfif" -> Just Jpeg
   "jfi" -> Just Jpeg
   "tiff" -> Just Tiff
+  "tif" -> Just Tiff
   "gif" -> Just Gif
   "bmp" -> Just Bmp
   _ -> Nothing
@@ -76,7 +78,7 @@ formatExtension c = case c of
   Blp -> [".blp"]
   Png -> [".png"]
   Jpeg -> [".jpeg", ".jpg", ".jpe", ".jif", ".jfif", ".jfi"]
-  Tiff -> [".tiff"]
+  Tiff -> [".tiff", ".tif"]
   Gif -> [".gif"]
   Bmp -> [".bmp"]
   UnspecifiedFormat -> []
@@ -94,13 +96,14 @@ data ConvertOptions = ConvertOptions {
 , convertShallow        :: Bool
 , convertBlpKind        :: BlpKind
 , convertBlpMinMipSize  :: Int
+, convertTimeout        :: Maybe Int
 }
 
 convertFiles :: ConvertOptions -> IO ()
 convertFiles opts@ConvertOptions{..} = do
   isFile <- doesFileExist convertInput
   isDir <- doesDirectoryExist convertInput
-  if | isFile -> convertFile opts False convertInput >>= either (failWith . ((convertInput ++ ": ") ++)) putStrLn
+  if | isFile -> withTimeout convertTimeout (convertFile opts False convertInput) >>= either (failWith . ((convertInput ++ ": ") ++)) putStrLn
      | isDir -> do
          putStrLn $ "Converting all files from " ++ convertInput ++ " folder"
          (converted, failed) <- forEachFile (not convertShallow) convertInput fileFilter step (0 :: Int, 0 :: Int)
@@ -109,7 +112,7 @@ convertFiles opts@ConvertOptions{..} = do
      | otherwise -> failWith $ "Given path " ++ convertInput ++ " doesn't exist!"
   where
     step (!converted, !failed) inputFile = do
-      result <- tryAll (convertFile opts True inputFile)
+      result <- tryAll (withTimeout convertTimeout (convertFile opts True inputFile))
       case join result of
         Right msg -> putStrLn msg >> return (converted + 1, failed)
         Left err -> hPutStrLn stderr (inputFile ++ ": " ++ err) >> return (converted, failed + 1)
@@ -142,24 +145,40 @@ readInputFile inputFile format = case format of
 convertFile :: ConvertOptions -> Bool -> FilePath -> IO (Either String String)
 convertFile ConvertOptions{..} isDir inputFile = runExceptT $ do
   img <- ExceptT $ readInputFile inputFile convertInputFormat
-  let distFormat = case convertFormat of
-        UnspecifiedFormat -> if isDir then defaultFormat
-          else case guessFormat convertOutput of
-            Just f -> f
-            Nothing -> defaultFormat
-        _ -> convertFormat
-
-      outputName = takeBaseName inputFile <> fromMaybe "" (listToMaybe $ formatExtension distFormat)
+  distFormat <- case convertFormat of
+    UnspecifiedFormat
+      | isDir -> pure defaultFormat
+      | otherwise -> maybe
+          (throwE $ "cannot tell the output format from " <> convertOutput <> "; give it with -f")
+          pure (guessFormat convertOutput)
+    _ -> pure convertFormat
+  let outputName = takeBaseName inputFile <> fromMaybe "" (listToMaybe $ formatExtension distFormat)
       -- Keep the input's subdirectory unless asked to flatten the output.
       outputFile
         | not isDir = convertOutput
         | convertPreservesDirs = convertOutput </> makeRelative convertInput (takeDirectory inputFile) </> outputName
         | otherwise = convertOutput </> outputName
+  sameFile <- liftIO $ equalFilePath <$> makeAbsolute inputFile <*> makeAbsolute outputFile
+  when sameFile . throwE $ "the output " <> outputFile <> " would overwrite the input"
   liftIO . createDirectoryIfMissing True $ takeDirectory outputFile
 
   let mipsCount = mipMapsUpTo convertBlpMinMipSize img
   ExceptT $ convertionFunction distFormat convertQuality convertBlpKind outputFile mipsCount img
   pure $ inputFile <> ": Success"
+
+-- | A readable message for an encoding error.
+describeEncodeError :: BlpEncodeError -> String
+describeEncodeError e = case e of
+  BlpEmptyImage -> "the image is empty"
+  BlpImageTooLarge w h -> "the image is " <> show w <> "x" <> show h <> ", above the 65535 pixel limit of BLP"
+  BlpInvalidJpegQuality q -> "JPEG quality must be 1 to 100, got " <> show q
+  BlpFileTooLarge -> "the BLP file would be larger than 4 GiB"
+
+-- | Run a conversion, giving up after the given number of seconds.
+withTimeout :: Maybe Int -> IO (Either String a) -> IO (Either String a)
+withTimeout Nothing action = action
+withTimeout (Just seconds) action =
+  fromMaybe (Left $ "gave up after " <> show seconds <> " s") <$> timeout (seconds * 1000000) action
 
 convertionFunction :: ConvertFormat -> Int -> BlpKind -> FilePath -> Int -> DynamicImage -> IO (Either String ())
 convertionFunction f quality blpKind path mipsCount img = case f of
@@ -169,7 +188,7 @@ convertionFunction f quality blpKind path mipsCount img = case f of
           BlpUncompressedWithAlpha -> BlpFormatPaletted True
           BlpUncompressedWithoutAlpha -> BlpFormatPaletted False
     res <- writeBlpWith path (BlpEncodeOptions format mipsCount) img
-    pure $ either (Left . show) Right res
+    pure $ either (Left . describeEncodeError) Right res
   Png -> do
     res <- writeDynamicPng path img
     pure $ void res

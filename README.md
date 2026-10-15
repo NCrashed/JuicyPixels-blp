@@ -89,18 +89,21 @@ minor versions.
 ```
 blp2any convert INPUT_PATH OUTPUT_PATH [-i FORMAT] [-f FORMAT] [-q QUALITY]
                 [-b jpg|uncompressedWithAlpha|uncompressedWithoutAlpha]
-                [--min-mipmap-size N] [-s|--shallow] [-p|--flatten]
+                [--min-mipmap-size N] [-s|--shallow] [-p|--flatten] [--timeout SECONDS]
 blp2any stats DIRECTORY OUTPUT_PATH
 ```
 
 - **`convert`** turns a file or a whole directory from one format into
-  another. Supported formats are `blp`, `png`, `jpg`, `tiff`, `gif` and
-  `bmp`.
+  another. Supported formats are `blp`, `png`, `jpg`, `tiff` (`tif`), `gif`
+  and `bmp`.
   - Formats are inferred from the file names, or given with `-i` and `-f`.
   - With a directory it recurses unless `-s` is given, and it recreates the
     subdirectories unless `-p` (`--flatten`) is given. A file that fails is
     reported on stderr and skipped; at the end it prints how many files were
     converted and failed, and exits with status 1 if any failed.
+  - `--timeout SECONDS` gives up on a file that takes longer; use it on
+    untrusted input, where some corrupt JPEG data makes decoding hang. The
+    output never overwrites its input.
   - When writing BLP, `-b` picks the internal format (JPEG by default) and
     `--min-mipmap-size` the smallest mip level to keep. The default is 1,
     which writes every level down to 1×1. A larger value leaves textures

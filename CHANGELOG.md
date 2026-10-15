@@ -12,6 +12,13 @@ Unreleased
   levels) without decoding any pixels, so callers can reject textures
   before decoding them.
 - `BlpCompression` is exported from `Codec.Picture.Blp`.
+- blp2any:
+  - `--timeout SECONDS` gives up on a file that takes too long, so a corrupt
+    JPEG that makes decoding hang no longer stalls a batch.
+  - An output name with an unknown extension is an error; it used to be
+    written as PNG regardless, and `.tif` output really was PNG.
+  - It refuses to write over its input, rejects `-q` outside 1..100, prints
+    encoding errors in words, and `stats` finds `*.BLP` in upper case.
 - Fixed the documentation of `decodeBlpMipmaps`, which rendered as "Element
   @ is always mip level @".
 

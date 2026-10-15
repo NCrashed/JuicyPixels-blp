@@ -56,8 +56,10 @@ minor versions.
   - truncated or corrupt mipmaps. These cost only the levels from the damaged
     one onwards; a damaged full size image still fails the file.
 
-  The decoder reports malformed input as `Left`; the test suite checks this
-  for every kind of damage it covers.
+  The decoder reports malformed input as `Left`, including errors raised
+  inside JuicyPixels' JPEG decoder. One known exception: some corrupt JPEG
+  streams make JuicyPixels loop forever, so decoding untrusted files needs a
+  timeout.
 - **Encoding** to JPEG or a 256 colour palette, with or without alpha. The
   JPEG header is shared between mipmaps, as in Blizzard's own files.
 

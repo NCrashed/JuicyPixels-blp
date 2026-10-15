@@ -109,6 +109,8 @@ test-suite spec
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Main.hs
+  -- No test needs more; a decoder that allocates without bound fails loudly.
+  ghc-options:         -rtsopts -with-rtsopts=-M1g
   other-modules:
     Deprecated
     Fixture

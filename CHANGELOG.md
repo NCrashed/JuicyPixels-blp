@@ -1,3 +1,20 @@
+Unreleased
+==========
+
+- Decoding refuses images above `blpMaxPixels` pixels, 8192x8192 by default,
+  before allocating anything. `decodeBlpWith` and `decodeBlpMipmapsWith` take
+  `BlpDecodeOptions` to set the limit. The 0.4.0.0 notes claimed that small
+  files could no longer demand gigabytes; that was wrong. A JPEG frame
+  smaller than its level is padded to the level size, and the level size
+  comes from the header, so a 493-byte file claiming 65535x65535 pixels
+  still made the decoder allocate about 17 GB.
+- `blpInfo` reads the header (content type, size, alpha bits, usable mip
+  levels) without decoding any pixels, so callers can reject textures
+  before decoding them.
+- `BlpCompression` is exported from `Codec.Picture.Blp`.
+- Fixed the documentation of `decodeBlpMipmaps`, which rendered as "Element
+  @ is always mip level @".
+
 0.4.0.0 (2026-10-15)
 ====================
 
@@ -41,8 +58,9 @@ Decoding untrusted files (#30):
 - Width and height must be between 1 and 65535. Larger values used to
   overflow the size checks and leave an exception in the decoded image.
 - Each JPEG level's frame size is read before decoding. A frame larger than
-  the level is rejected, so an 800-byte file can no longer demand gigabytes;
-  a smaller one is padded with transparent black.
+  the level is rejected; a smaller one is padded with transparent black.
+  (This was described as stopping small files from demanding gigabytes;
+  it did not, see 0.4.1.0.)
 - Mipmap slots are read by index. A missing or garbage slot ends the chain
   instead of shifting the later levels, and a garbage slot that points into
   the palette no longer breaks the file.

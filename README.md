@@ -64,7 +64,10 @@ minor versions.
     one onwards; a damaged full size image still fails the file.
 
   The decoder reports malformed input as `Left`, including errors raised
-  inside JuicyPixels' JPEG decoder. One known exception: some corrupt JPEG
+  inside JuicyPixels' JPEG decoder. Memory use follows the size in the file
+  header, so decoding refuses images above 8192×8192 by default; check
+  untrusted files with `blpInfo` and set your own limit with
+  `decodeBlpWith (BlpDecodeOptions n)`. One known exception: some corrupt JPEG
   streams make JuicyPixels loop forever
   ([Juicy.Pixels#230](https://github.com/haskell-github-trust/Juicy.Pixels/issues/230)),
   so decoding untrusted files needs a timeout.

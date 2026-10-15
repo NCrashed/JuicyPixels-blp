@@ -112,10 +112,12 @@ uint8  jpegHeader[jpegHeaderSize]
   across unchanged ([#11](https://github.com/NCrashed/JuicyPixels-blp/pull/11),
   [#17](https://github.com/NCrashed/JuicyPixels-blp/issues/17)).
 - **Frame size.** The decoder reads each level's frame size before decoding
-  it. A frame larger than the level is treated as damage, which also stops a
-  forged frame header from making the decoder allocate gigabytes. A smaller
-  frame is padded with transparent black to the level size, as Warcraft III
-  does.
+  it. A frame larger than the level is treated as damage, and a smaller one
+  is padded with transparent black to the level size, as Warcraft III does.
+  The level size comes from the BLP header, which a forged file controls as
+  well, so the decoder also refuses full size images above `blpMaxPixels`
+  (8192×8192 by default) before allocating anything. `blpInfo` reads the
+  size without decoding.
 - **JuicyPixels.** The JPEG streams themselves are decoded by JuicyPixels.
   Errors it raises are turned into `Left`, but some corrupt streams make it
   loop forever

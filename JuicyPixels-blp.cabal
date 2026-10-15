@@ -1,6 +1,6 @@
 cabal-version:       2.2
 name:                JuicyPixels-blp
-version:             0.4.0.0
+version:             0.4.1.0
 synopsis:            BLP format decoder/encoder over JuicyPixels library
 description:
   Read and write BLP1, the texture format of Warcraft III, with images as

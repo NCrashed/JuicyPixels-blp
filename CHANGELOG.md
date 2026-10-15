@@ -1,5 +1,5 @@
-Unreleased
-==========
+0.4.1.0 (2026-10-15)
+====================
 
 - Decoding refuses images above `blpMaxPixels` pixels, 8192x8192 by default,
   before allocating anything. `decodeBlpWith` and `decodeBlpMipmapsWith` take
@@ -22,8 +22,9 @@ Unreleased
 - Lower bounds now match the oldest versions CI tests: JuicyPixels 3.3.6,
   vector 0.12.3, attoparsec 0.14.4, binary 0.8.9, bytestring 0.11.5 and
   deepseq 1.4.8 (and for blp2any directory 1.3.7, filepath 1.4.2,
-  optparse-simple 0.1, transformers 0.5.6). The old bounds allowed versions
-  that were never tested and do not build with any supported GHC.
+  optparse-simple 0.1, transformers 0.5.6), and a CI job builds and tests
+  with exactly those. The old bounds allowed versions that were never
+  tested.
 - Fixed the documentation of `decodeBlpMipmaps`, which rendered as "Element
   @ is always mip level @".
 

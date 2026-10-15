@@ -1,0 +1,119 @@
+name: Release binaries
+
+# Builds blp2any for Linux, macOS and Windows. On a published GitHub Release
+# the archives are attached to it; on changes to this file in a pull request
+# they are kept as workflow artifacts, so the build can be checked first.
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - .github/workflows/release-binaries.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: blp2any (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported Ubuntu, so the binary needs an older glibc.
+          - { os: ubuntu-22.04, name: linux-x86_64 }
+          # macos-latest (SDK 27) has library stubs the GHC toolchain's linker
+          # rejects ("unknown architecture arm64e.x1"); macos-15 links fine.
+          - { os: macos-15, name: macos-arm64 }
+          - { os: windows-latest, name: windows-x86_64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: '9.10'
+          cabal-version: latest
+
+      - name: Update package index
+        run: cabal update
+
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: binaries-${{ matrix.os }}-${{ hashFiles('JuicyPixels-blp.cabal') }}
+          restore-keys: binaries-${{ matrix.os }}-
+
+      - name: Build
+        run: cabal install exe:blp2any -O2 --installdir=bin --install-method=copy --overwrite-policy=always --enable-executable-stripping
+
+      - name: Smoke test
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" - <<'PY'
+          import struct, zlib
+          w, h = 64, 32
+          rows = b"".join(b"\x00" + b"".join(bytes([x * 4, y * 8, 128, 255 - x]) for x in range(w)) for y in range(h))
+          def chunk(kind, data):
+              return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+          png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) \
+              + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+          open("sample.png", "wb").write(png)
+          PY
+          bin/blp2any --version
+          bin/blp2any convert sample.png sample.blp
+          bin/blp2any convert sample.blp back.png
+          bin/blp2any convert sample.png paletted.blp -b uncompressedWithAlpha
+          bin/blp2any convert paletted.blp paletted.png
+          test -s back.png && test -s paletted.png
+
+      - name: Linked libraries
+        run: |
+          case "$RUNNER_OS" in
+            Linux) ldd bin/blp2any ;;
+            macOS) otool -L bin/blp2any ;;
+            Windows) ls -l bin ;;
+          esac
+
+      - name: Package
+        id: package
+        run: |
+          version=$(bin/blp2any --version)
+          dir="blp2any-$version-${{ matrix.name }}"
+          mkdir "$dir"
+          cp bin/blp2any* README.md LICENSE CHANGELOG.md "$dir"/
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -tzip "$dir.zip" "$dir" > /dev/null
+            echo "archive=$dir.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar czf "$dir.tar.gz" "$dir"
+            echo "archive=$dir.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: blp2any-${{ matrix.name }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: Attach to the release
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/* --clobber --repo "${{ github.repository }}"

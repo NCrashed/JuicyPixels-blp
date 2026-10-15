@@ -94,6 +94,13 @@ minor versions.
 
 ## blp2any
 
+Ready-made binaries for Windows, macOS (Apple Silicon) and Linux are
+attached to each [GitHub release](https://github.com/NCrashed/JuicyPixels-blp/releases)
+from 0.5.0.0 on. The Linux binary needs glibc 2.35 or newer (Ubuntu 22.04,
+Debian 12 and later), plus zlib and GMP, which almost every distribution
+has. To build it yourself instead, use `cabal install JuicyPixels-blp`
+(from Hackage) or `nix run github:NCrashed/JuicyPixels-blp`.
+
 ```
 blp2any convert INPUT_PATH OUTPUT_PATH [-i FORMAT] [-f FORMAT] [-q QUALITY]
                 [-b jpg|uncompressedWithAlpha|uncompressedWithoutAlpha]

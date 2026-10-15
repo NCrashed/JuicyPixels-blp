@@ -3,8 +3,8 @@ module Convert(
   , ConvertFormat(..)
   , ConvertOptions(..)
   , readConvertFormat
-  , BlpFormat(..)
-  , readBlpFormat
+  , BlpKind(..)
+  , readBlpKind
   ) where
 
 import Codec.Picture
@@ -19,14 +19,15 @@ import qualified Data.ByteString as BS
 
 import File
 
-data BlpFormat =
+-- | BLP content type to write, as picked on the command line.
+data BlpKind =
     BlpJpeg
   | BlpUncompressedWithAlpha
   | BlpUncompressedWithoutAlpha
   deriving (Eq, Ord, Show, Enum, Bounded)
 
-readBlpFormat :: String -> Maybe BlpFormat
-readBlpFormat s = case toLower <$> s of
+readBlpKind :: String -> Maybe BlpKind
+readBlpKind s = case toLower <$> s of
   "jpeg" -> Just BlpJpeg
   "jpg" -> Just BlpJpeg
   "uncompressed1" -> Just BlpUncompressedWithAlpha
@@ -85,7 +86,7 @@ data ConvertOptions = ConvertOptions {
 , convertQuality        :: Int
 , convertPreservesDirs  :: Bool
 , convertShallow        :: Bool
-, convertBlpFormat      :: BlpFormat
+, convertBlpKind        :: BlpKind
 , convertBlpMinMipSize  :: Int
 }
 
@@ -152,17 +153,20 @@ convertFile ConvertOptions{..} isDir inputFile = do
   createDirectoryIfMissing True $ takeDirectory outputFile
 
   let mipsCount = mipMapsUpTo convertBlpMinMipSize img
-  res <- convertionFunction distFormat convertQuality convertBlpFormat outputFile mipsCount img
+  res <- convertionFunction distFormat convertQuality convertBlpKind outputFile mipsCount img
   case res of
     Left err -> fail $ inputFile <> ": " <> err
     Right _ -> putStrLn $ inputFile <> ": Success"
 
-convertionFunction :: ConvertFormat -> Int -> BlpFormat -> FilePath -> Int -> DynamicImage -> IO (Either String ())
-convertionFunction f quality blpFormat path mipsCount img = case f of
-  Blp -> case blpFormat of
-    BlpJpeg -> writeBlpJpeg path quality mipsCount img >> pure (Right ())
-    BlpUncompressedWithAlpha -> writeBlpUncompressedWithAlpha path mipsCount img >> pure (Right ())
-    BlpUncompressedWithoutAlpha -> writeBlpUncompressedWithoutAlpha path mipsCount img >> pure (Right ())
+convertionFunction :: ConvertFormat -> Int -> BlpKind -> FilePath -> Int -> DynamicImage -> IO (Either String ())
+convertionFunction f quality blpKind path mipsCount img = case f of
+  Blp -> do
+    let format = case blpKind of
+          BlpJpeg -> BlpFormatJpeg quality
+          BlpUncompressedWithAlpha -> BlpFormatPaletted True
+          BlpUncompressedWithoutAlpha -> BlpFormatPaletted False
+    res <- writeBlpWith path (BlpEncodeOptions format mipsCount) img
+    pure $ either (Left . show) Right res
   Png -> do
     res <- writeDynamicPng path img
     pure $ void res

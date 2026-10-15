@@ -83,7 +83,7 @@ parseBlp input = do
 headerParser :: Parser (BlpExt -> BlpStruct, BlpCompression, Word32, Word32, [(Word32, Word32)])
 headerParser = do
   _ <- blpVersion
-  blpCompression <- compressionParser
+  compression <- compressionParser
   blpAlphaBits <- dword <?> "alpha bits"
   blpWidth <- dword <?> "width"
   blpHeight <- dword <?> "height"
@@ -92,7 +92,7 @@ headerParser = do
   offsets <- count 16 dword <?> "mipmaps offsets"
   sizes <- count 16 dword <?> "mipmaps sizes"
   let mkStruct blpExt = BlpStruct {..}
-  return (mkStruct, blpCompression, blpWidth, blpHeight, offsets `zip` sizes)
+  return (mkStruct, compression, blpWidth, blpHeight, offsets `zip` sizes)
 
 -- | The @BLP1@ magic. BLP0 and BLP2 files fail here.
 blpVersion :: Parser ByteString

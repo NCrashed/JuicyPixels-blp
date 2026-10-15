@@ -37,7 +37,7 @@ collectSample stats inputFile = do
     Right blp -> return $ adjust' (updateStat inputFile) (blpType blp) stats
 
 blpType :: BlpStruct -> BlpInfo 
-blpType BlpStruct{..} = (blpCompression, blpAlphaBits, blpExtra, blpHasMipmaps)
+blpType blp@BlpStruct{..} = (blpCompression blp, blpAlphaBits, blpExtra, blpHasMipmaps)
 
 adjust' :: (Maybe BlpStat -> BlpStat) -> BlpInfo -> StatMap -> StatMap 
 adjust' f k m = M.insert k (f $ M.lookup k m) m

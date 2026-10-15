@@ -7,11 +7,10 @@ This is an internal module: its API may change between minor versions.
 module Codec.Picture.Blp.Internal.Encoder(
     encodeBlp
   , blpEncoder
+  , toBlpStruct
   , createMipMaps
   , createMipMapsIndexed
   , scanHeader
-  , toBlpStruct
-  , toBlpExt
   ) where
 
 import Codec.Picture
@@ -23,75 +22,51 @@ import Data.ByteString.Lazy (ByteString, toStrict)
 import Data.Foldable (traverse_)
 import Data.Word
 
-import qualified Codec.Picture.Metadata as CM
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BI
-import qualified Data.Foldable as F
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 
 import Codec.Picture.Blp.Internal.Convert
 import Codec.Picture.Blp.Internal.Data
 
--- | Serialise a BLP structure, writing the given number of mip levels (at
--- least one).
-encodeBlp :: Int -> BlpStruct -> ByteString
-encodeBlp numMips = runPut . blpEncoder numMips
+-- | Serialise a BLP structure. The content type follows from 'blpExt'; at
+-- most 16 mip levels are written, and unused slots are zero.
+encodeBlp :: BlpStruct -> ByteString
+encodeBlp = runPut . blpEncoder
 
 -- | Raw encoder for BLP
-blpEncoder :: Int -> BlpStruct -> Put
-blpEncoder requestedMips BlpStruct{..} = do
-  putBlpVersion
-  putCompression
+blpEncoder :: BlpStruct -> Put
+blpEncoder BlpStruct{..} = do
+  putByteString "BLP1"
+  putWord32le $ case blpExt of
+    BlpJpeg {} -> 0
+    BlpPaletted {} -> 1
   putWord32le blpAlphaBits
   putWord32le blpWidth
   putWord32le blpHeight
   putWord32le blpExtra
   putWord32le blpHasMipmaps
-  putMipMapOffsets
-  putMipMapSizes
-  putBlpExt
+  traverse_ putWord32le . slots $ take (length levels) (scanl (+) contentStart levelSizes)
+  traverse_ putWord32le $ slots levelSizes
+  case blpExt of
+    BlpJpeg {..} -> do
+      putWord32le . fromIntegral $ BS.length blpJpegHeader
+      putByteString blpJpegHeader
+    BlpPaletted {..} ->
+      traverse_ putRgba8 . V.take 256 $ blpPalette <> V.replicate 256 (PixelRGBA8 0 0 0 0)
+  traverse_ putByteString levels
   where
-    -- A file without mip 0 has no image at all, so always write it.
-    numMips = max 1 requestedMips
-    putBlpVersion = putByteString "BLP1"
-    putCompression = putWord32le $ case blpCompression of
-      BlpCompressionJPEG -> 0
-      BlpCompressionUncompressed -> 1
-    headerSize = 4 -- BLP1
-      + 4 -- Compression
-      + 4 -- Alpha bits
-      + 4 -- Width
-      + 4 -- Height
-      + 4 -- Extra
-      + 4 -- Has mipmaps
-      + 16 * 4 -- Mipmaps offsets
-      + 16 * 4 -- Mipmaps sizes
-    mipmaps = let
-      mkOffsetSize :: BS.ByteString -> (Int, [(Word32, Word32)]) ->  (Int, [(Word32, Word32)])
-      mkOffsetSize bs (!offset, !acc) = (offset + BS.length bs, (fromIntegral offset, fromIntegral $ BS.length bs) : acc)
-      uncomprStartOffset = headerSize + 4 * 256
-      in reverse . snd $ case blpExt of
-        BlpJpeg{..} -> let
-          startOffset = headerSize + 4 + BS.length blpJpegHeader
-          in F.foldr' mkOffsetSize (startOffset, []) $ reverse blpJpegData
-        BlpPaletted{..} -> F.foldr' mkOffsetSize (uncomprStartOffset, []) $ reverse blpPalettedMipMaps
-    ensureLength _ [] = []
-    ensureLength n xs = if length xs < n
-      then xs ++ replicate (n - length xs) (last xs)
-      else take n xs
-    ensureLengthV n a xs = if V.length xs < n then xs <> V.replicate (n - V.length xs) a else V.take n xs
-    putMipMapOffsets = traverse_ putWord32le . ensureLength 16 . take numMips . fmap fst $ mipmaps
-    putMipMapSizes = traverse_ putWord32le . ensureLength 16 . take numMips . fmap snd $ mipmaps
+    headerSize = 156
+    levels = take 16 $ case blpExt of
+      BlpJpeg {..} -> blpJpegData
+      BlpPaletted {..} -> blpPalettedMipMaps
+    levelSizes = BS.length <$> levels
+    contentStart = case blpExt of
+      BlpJpeg {..} -> headerSize + 4 + BS.length blpJpegHeader
+      BlpPaletted {} -> headerSize + 4 * 256
+    slots xs = take 16 $ (fromIntegral <$> xs) ++ repeat 0
     putRgba8 (PixelRGBA8 r g b a) = putWord8 r >> putWord8 g >> putWord8 b >> putWord8 a
-    putBlpExt = case blpExt of -- TODO: check sync of compression flag and BlpExt
-       BlpJpeg{..} -> do
-         putWord32le $ fromIntegral $ BS.length blpJpegHeader
-         putByteString blpJpegHeader
-         traverse_ putByteString $ take numMips blpJpegData
-       BlpPaletted{..} -> do
-         traverse_ putRgba8 . ensureLengthV 256 (PixelRGBA8 0 0 0 0) $ blpPalette
-         traverse_ putByteString $ take numMips blpPalettedMipMaps
 
 -- | Return 'True' if given picture format has alpha channel
 hasAlpha :: DynamicImage -> Bool
@@ -102,40 +77,30 @@ hasAlpha img = case img of
   ImageRGBA16 _ -> True
   _ -> False
 
--- | Build the BLP structure for an image: content type, JPEG quality (ignored
--- for paletted content) and number of mip levels. Alpha follows the image
--- format.
-toBlpStruct :: BlpCompression -> Int -> Int -> DynamicImage -> BlpStruct
-toBlpStruct compression quality numMips img = BlpStruct {
-    blpCompression = compression
-  , blpAlphaBits = if alpha then 8 else 0
-  , blpWidth = fromIntegral $ dynamicMap imageWidth img
-  , blpHeight = fromIntegral $ dynamicMap imageHeight img
+-- | Build the BLP structure for an image with the given format and number of
+-- mip levels. The number is clamped to between 1 and the image's full chain,
+-- at most 16. The image's size is not checked.
+toBlpStruct :: BlpFormat -> Int -> DynamicImage -> BlpStruct
+toBlpStruct format requestedLevels img = BlpStruct {
+    blpAlphaBits = if alpha then 8 else 0
+  , blpWidth = fromIntegral $ imageWidth rgba
+  , blpHeight = fromIntegral $ imageHeight rgba
   -- Readers that follow the old description of the format pick alpha by
   -- this field (3 or 4 with alpha, 5 without), so keep it consistent.
   , blpExtra = if alpha then 3 else 5
-  , blpHasMipmaps = 5 -- WorldEdit writes this for war3mapMap.blp
-  , blpExt = toBlpExt compression alpha quality numMips img'
+  -- WorldEdit writes 5; a single level says it has no mipmaps.
+  , blpHasMipmaps = if numLevels > 1 then 5 else 0
+  , blpExt = case format of
+      BlpFormatJpeg quality -> toBlpJpg (fromIntegral quality) numLevels alpha rgba
+      BlpFormatPaletted _ -> toBlpPaletted alpha numLevels rgba
   }
   where
-    alpha = hasAlpha img
-    img' = convertRGBA8 img
-
--- | Take only first N mipmaps in list, fill rest with last non-fake mipmap
-fakeMipMaps :: Int -- ^ How much true values to preserve (if <= 0, the function does nothing)
-  -> [a] -- ^ List of mimpaps
-  -> [a] -- ^ Result with fakes
-fakeMipMaps = go Nothing
-  where
-    go mprev n xs
-      | n <= 0 = case mprev of
-        Nothing -> xs
-        Just v -> case xs of
-          [] -> []
-          _ : xs' -> v : go (Just v) 0 xs'
-      | otherwise = case xs of
-        [] -> []
-        x : xs' -> x : go (Just x) (n-1) xs'
+    alpha = case format of
+      BlpFormatJpeg _ -> hasAlpha img
+      BlpFormatPaletted withAlpha -> withAlpha
+    rgba = convertRGBA8 img
+    chainLength = length . takeWhile (>= 1) $ iterate (`div` 2) (max (imageWidth rgba) (imageHeight rgba))
+    numLevels = max 1 . min 16 $ min chainLength requestedLevels
 
 -- | Scale image to form the sequence of mipmaps. The first element is always the original picture.
 --
@@ -173,36 +138,17 @@ createMipMapsIndexed img = img : go img
     go i | imageWidth i <= 1 && imageHeight i <= 1 = []
          | otherwise = let i' = power2Scale i in i' : go i'
 
--- | Convert picture to BLP payload
-toBlpExt :: BlpCompression -> Bool -> Int -> Int -> Image PixelRGBA8 -> BlpExt
-toBlpExt compr keepAlpha quality numMips img = case compr of
-  BlpCompressionJPEG -> toBlpJpg (fromIntegral quality) numMips keepAlpha img
-  BlpCompressionUncompressed -> toBlpPaletted keepAlpha numMips img
-
 -- | Convert picture to BLP JPEG and create mipmaps
 toBlpJpg :: Word8 -> Int -> Bool -> Image PixelRGBA8 -> BlpExt
-toBlpJpg quality numMips keepAlpha img = BlpJpeg {
+toBlpJpg quality numLevels keepAlpha img = BlpJpeg {
     blpJpegHeader = header
-  , blpJpegData = mipmapsRawWithoutHeader
+  , blpJpegData = BS.drop (BS.length header) <$> streams
   }
   where
-    processAlpha :: Image PixelRGBA8 -> Image PixelRGBA8
-    processAlpha = pixelMap $ \p@(PixelRGBA8 r g b _) -> if keepAlpha then p else PixelRGBA8 r g b 255
-
-    mipmaps :: [Image PixelCMYK8]
-    mipmaps = toBlpCMYK8 <$> (fakeMipMaps numMips . createMipMaps . processAlpha $ img)
-
-    metadata :: CM.Metadatas
-    metadata = CM.insert (CM.Unknown "JPEG Quality") (CM.Int $ fromIntegral quality) mempty
-
-    mipmapsRaw :: [BS.ByteString]
-    mipmapsRaw = toStrict . encodeDirectJpegAtQualityWithMetadata quality metadata <$> mipmaps
-
-    header :: BS.ByteString
-    header = scanHeader 624 mipmapsRaw
-
-    mipmapsRawWithoutHeader :: [BS.ByteString]
-    mipmapsRawWithoutHeader = BS.drop (BS.length header) <$> mipmapsRaw
+    opaque = if keepAlpha then id else pixelMap (\(PixelRGBA8 r g b _) -> PixelRGBA8 r g b 255)
+    levels = take numLevels . createMipMaps . opaque $ img
+    streams = toStrict . encodeDirectJpegAtQualityWithMetadata quality mempty . toBlpCMYK8 <$> levels
+    header = scanHeader 624 streams
 
 -- | Manually scan shared prefix of each mipmap
 scanHeader :: Int -> [BS.ByteString] -> BS.ByteString
@@ -236,7 +182,7 @@ convertIndexed img = let
 -- | Quantise a picture to a 256 colour palette and create mipmaps, with an
 -- 8-bit alpha list after each index list when asked to keep alpha.
 toBlpPaletted :: Bool -> Int -> Image PixelRGBA8 -> BlpExt
-toBlpPaletted keepAlpha numMips img = BlpPaletted {
+toBlpPaletted keepAlpha numLevels img = BlpPaletted {
     blpPalette = convertPalette palette
   , blpPalettedMipMaps = if keepAlpha
       then zipWith (<>) (convertIndexed <$> mipmaps) (convertIndexed <$> alphaMaps)
@@ -248,7 +194,7 @@ toBlpPaletted keepAlpha numMips img = BlpPaletted {
     (img', palette) = makePallette img
 
     mipmaps :: [Image Pixel8]
-    mipmaps = fakeMipMaps numMips $ createMipMapsIndexed img'
+    mipmaps = take numLevels $ createMipMapsIndexed img'
 
     alphaMaps :: [Image Pixel8]
-    alphaMaps = fakeMipMaps numMips $ createMipMapsIndexed (extractComponent PlaneAlpha img)
+    alphaMaps = take numLevels $ createMipMapsIndexed (extractComponent PlaneAlpha img)

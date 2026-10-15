@@ -105,23 +105,31 @@ toBlpStruct format requestedLevels img = BlpStruct {
 -- | Scale image to form the sequence of mipmaps. The first element is always the original picture.
 --
 -- Each level averages 2x2 blocks; on an odd or one-pixel side the last block
--- reuses the edge pixel.
+-- reuses the edge pixel. Colour is weighted by alpha, so the colour of
+-- transparent pixels does not bleed into their neighbours; alpha itself is
+-- a plain average. Rounding is to the nearest, ties to even.
 createMipMaps :: Image PixelRGBA8 -> [Image PixelRGBA8]
 createMipMaps img = img : go img
   where
-    avg' v1 v2 v3 v4 = let
-      v = fromIntegral v1 + fromIntegral v2 + fromIntegral v3 + fromIntegral v4 :: Double
-      in round $ v / 4
     -- On a side that is already one pixel (or odd) the second sample is
     -- clamped to the edge, so the chain can go on to 1x1.
     avg i x y = let
       x1 = min (imageWidth i - 1) (x*2 + 1)
       y1 = min (imageHeight i - 1) (y*2 + 1)
-      PixelRGBA8 p00r p00g p00b p00a = pixelAt i (x*2) (y*2)
-      PixelRGBA8 p10r p10g p10b p10a = pixelAt i x1 (y*2)
-      PixelRGBA8 p01r p01g p01b p01a = pixelAt i (x*2) y1
-      PixelRGBA8 p11r p11g p11b p11a = pixelAt i x1 y1
-      in PixelRGBA8 (avg' p00r p10r p01r p11r) (avg' p00g p10g p01g p11g) (avg' p00b p10b p01b p11b) (avg' p00a p10a p01a p11a)
+      block = [pixelAt i (x*2) (y*2), pixelAt i x1 (y*2), pixelAt i (x*2) y1, pixelAt i x1 y1]
+      alphaOf (PixelRGBA8 _ _ _ a) = fromIntegral a :: Int
+      alphaSum = sum (alphaOf <$> block)
+      channel c
+        | alphaSum == 0 = roundDiv (sum (c <$> block)) 4
+        | otherwise = roundDiv (sum [c p * alphaOf p | p <- block]) alphaSum
+      red (PixelRGBA8 r _ _ _) = fromIntegral r
+      green (PixelRGBA8 _ g _ _) = fromIntegral g
+      blue (PixelRGBA8 _ _ b _) = fromIntegral b
+      in PixelRGBA8 (channel red) (channel green) (channel blue) (roundDiv alphaSum 4)
+    roundDiv :: Int -> Int -> Word8
+    roundDiv n d = let
+      (q, r) = n `divMod` d
+      in fromIntegral $ if 2 * r > d || (2 * r == d && odd q) then q + 1 else q
     power2Scale i = generateImage (avg i) (downgrade $ imageWidth i) (downgrade $ imageHeight i)
     downgrade v = max 1 $ v `div` 2
     go i | imageWidth i <= 1 && imageHeight i <= 1 = []
@@ -196,5 +204,6 @@ toBlpPaletted keepAlpha numLevels img = BlpPaletted {
     mipmaps :: [Image Pixel8]
     mipmaps = take numLevels $ createMipMapsIndexed img'
 
+    -- Alpha is coverage, not an index, so its mipmaps are averaged.
     alphaMaps :: [Image Pixel8]
-    alphaMaps = take numLevels $ createMipMapsIndexed (extractComponent PlaneAlpha img)
+    alphaMaps = take numLevels $ extractComponent PlaneAlpha <$> createMipMaps img

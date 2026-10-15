@@ -15,6 +15,11 @@ New encoding API (the old functions still work, as deprecated wrappers):
 
 Encoder fixes:
 
+- Mipmap colour is averaged with alpha as the weight, so the colour of
+  transparent pixels no longer bleeds into the edges of sprites as a dark
+  halo, and the alpha list of paletted mipmaps is averaged instead of taking
+  one pixel of each block, which turned fine alpha patterns fully
+  transparent. Opaque textures encode exactly as before.
 - Unused mipmap slots are zero, as the format requires. They used to repeat
   the last level, which readers that map slot i to level i read as the wrong
   level.

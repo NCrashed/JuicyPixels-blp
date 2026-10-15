@@ -130,4 +130,27 @@ does not test it.
 - **Test suite.** It builds its BLP fixtures in code (`test/Fixture.hs`):
   paletted files byte by byte, and JPEG files from the encoder, patched where
   needed. A test that pins down a fix names its PR or issue.
-- **CI.** It builds and tests GHC 9.4 to 9.14 with `-Werror`.
+- **CI.** It builds and tests GHC 9.4 to 9.14 with `-Werror`. The benchmarks are built
+  in CI but not run.
+
+### Benchmarks
+
+`bench/Main.hs` (tasty-bench) times decoding and encoding at several sizes
+for each content type, plus a few internals. The inputs are generated in
+code. To compare a change against the current state:
+
+```
+cabal bench --ghc-options=-fproc-alignment=64 --benchmark-options '--csv before.csv'
+# ... change the code ...
+cabal bench --ghc-options=-fproc-alignment=64 --benchmark-options '--baseline before.csv'
+```
+
+Use `-p` to run a subset, for example `-p decode` or `-p '/jpeg alpha/'`.
+
+Two things make the numbers noisy:
+
+- **Code alignment.** Without `-fproc-alignment=64`, a change in one module
+  can move the tight loops of another and shift its timings by 20–25%. This
+  happened to the paletted decoder while the JPEG code was being changed.
+- **Machine load.** Compare runs made under the same conditions, ideally by
+  alternating the two builds.

@@ -1,6 +1,12 @@
 Unreleased
 ==========
 
+Faster: JPEG decoding is 2.1–2.7x and JPEG encoding 2.2–2.8x as fast,
+measured with the new benchmark suite (`bench/Main.hs`) at 64 to 2048
+pixels. The channel shuffles and the alpha check now work on the pixel
+buffer directly, and mipmaps are built with integer arithmetic. Output is
+byte-identical.
+
 blp2any:
 
 - `-s`/`--shallow` and `-p` (now also `--flatten`) were accepted but did

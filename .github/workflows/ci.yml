@@ -32,7 +32,7 @@ jobs:
       - name: Resolve build plan
         run: nix develop .#${{ matrix.ghc }} --command cabal build all --enable-tests --enable-benchmarks --dry-run
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.local/state/cabal/store
           key: cabal-${{ matrix.ghc }}-${{ hashFiles('dist-newstyle/cache/plan.json') }}

@@ -15,7 +15,7 @@ module Fixture(
   , setDword
   , offsetSlot
   , sizeSlot
-  , pictureTypeOffset
+  , extraOffset
   ) where
 
 import Data.Bits
@@ -26,22 +26,22 @@ import qualified Data.ByteString as BS
 
 data Header = Header {
   hCompression :: Word32
-, hFlags       :: Word32
+, hAlphaBits   :: Word32
 , hWidth       :: Word32
 , hHeight      :: Word32
-, hPictureType :: Word32
-, hSubType     :: Word32
+, hExtra       :: Word32
+, hHasMipmaps  :: Word32
 }
 
 -- | Uncompressed, with-alpha 4x4 header; override fields as needed.
 defHeader :: Header
 defHeader = Header {
     hCompression = 1
-  , hFlags       = 8
+  , hAlphaBits   = 8
   , hWidth       = 4
   , hHeight      = 4
-  , hPictureType = 4
-  , hSubType     = 5
+  , hExtra       = 4
+  , hHasMipmaps  = 5
   }
 
 -- | Size of the fixed BLP1 header: tag, six dwords, 16 offsets, 16 sizes.
@@ -53,7 +53,7 @@ headerSize = 156
 blpFile :: Header -> [(Word32, Word32)] -> ByteString -> ByteString
 blpFile Header{..} slots body = BS.concat
   [ "BLP1"
-  , dwords [hCompression, hFlags, hWidth, hHeight, hPictureType, hSubType]
+  , dwords [hCompression, hAlphaBits, hWidth, hHeight, hExtra, hHasMipmaps]
   , dwords (map fst slots') , dwords (map snd slots')
   , body
   ]
@@ -89,8 +89,8 @@ setDword :: Int -> Word32 -> ByteString -> ByteString
 setDword o v bs = BS.take o bs <> dword v <> BS.drop (o + 4) bs
 
 -- | File offsets of the header fields that tests patch.
-pictureTypeOffset :: Int
-pictureTypeOffset = 20
+extraOffset :: Int
+extraOffset = 20
 
 offsetSlot, sizeSlot :: Int -> Int
 offsetSlot i = 28 + 4 * i

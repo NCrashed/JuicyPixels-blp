@@ -34,8 +34,11 @@ module Codec.Picture.Blp(
   ) where
 
 import Codec.Picture
+import Control.DeepSeq (force)
+import Control.Exception
 import Data.Bits ((.&.), shiftR)
 import Data.ByteString (ByteString)
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -75,27 +78,42 @@ decodeBlpMipmaps bs = do
   let width = fromIntegral $ blpWidth blp
       height = fromIntegral $ blpHeight blp
   case blpExt blp of
-    BlpJpeg {..} -> do
-      let jpegs = (blpJpegHeader <>) `fmap` blpJpegData
-      case jpegs of
-        [] -> Left "No JPEG mipmap data in BLP"
-        (j0:js) -> do
-          -- Mipmap 0 is the full-resolution image; single-image callers
-          -- (`decodeBlp`) only ever take `head` of the result. Decoding it
-          -- strictly means a failure here still fails the whole file as
-          -- before. Tail mipmaps are decoded lazily and the chain stops at the
-          -- first one that fails, so a corrupt tail can no longer poison the
-          -- main image, and the result stays a prefix of the mip levels
-          -- (index i is always level i).
-          mip0 <- decodeJpeg j0
-          let validPrefix (j:rest) | Right m <- decodeJpeg j = m : validPrefix rest
-              validPrefix _ = []
-              lazyTail = validPrefix js
-              -- The alpha decision is taken once, from the full size mipmap, so that
-              -- every mipmap of a texture is decoded the same way. Smaller mipmaps
-              -- are often padded out with a flat alpha plane of their own.
-              useAlpha = blpAlphaBits blp == 8 && jpegAlphaIsUsable mip0
-          Right $ fromBlpJpeg useAlpha <$> (mip0 : lazyTail)
+    BlpJpeg {..} -> case blpJpegData of
+      [] -> Left "No JPEG mipmap data in BLP"
+      level0 : rest -> do
+        -- Mipmap 0 is the full-resolution image; a failure there fails the
+        -- file. Tail mipmaps are decoded lazily and the chain stops at the
+        -- first one that fails, so a corrupt tail costs only the levels from
+        -- it on, and element i stays level i.
+        mip0 <- decodeLevel 0 level0
+        let validPrefix l (j : js) | Right m <- decodeLevel l j = m : validPrefix (l + 1) js
+            validPrefix _ _ = []
+            -- The alpha decision is taken once, from the full size mipmap, so that
+            -- every mipmap of a texture is decoded the same way. Smaller mipmaps
+            -- are often padded out with a flat alpha plane of their own.
+            useAlpha = blpAlphaBits blp == 8 && jpegAlphaIsUsable mip0
+        Right $ toLevel useAlpha <$> zip [0 ..] (mip0 : validPrefix 1 rest)
+      where
+      -- The frame size is checked before decoding: JuicyPixels allocates the
+      -- whole image up front, so a forged frame header could otherwise ask
+      -- for gigabytes. A frame larger than the level is rejected; a smaller
+      -- one is padded with transparent black, as Warcraft III does.
+      decodeLevel :: Int -> ByteString -> Either String DynamicImage
+      decodeLevel l level = do
+        let jpeg = blpJpegHeader <> level
+            (lw, lh) = levelSize width height l
+        (fw, fh) <- maybe (Left $ "JPEG mipmap " ++ show l ++ " has no frame header") Right (jpegFrameSize jpeg)
+        if fw > lw || fh > lh
+          then Left $ "JPEG mipmap " ++ show l ++ " is " ++ show fw ++ "x" ++ show fh
+            ++ ", larger than its level size " ++ show lw ++ "x" ++ show lh
+          else safeDecodeJpeg jpeg
+      toLevel useAlpha (l, img) = let
+        (lw, lh) = levelSize width height l
+        rgba = convertRGBA8 (fromBlpJpeg useAlpha img)
+        in ImageRGBA8 $ if imageWidth rgba == lw && imageHeight rgba == lh
+          then rgba
+          else generateImage (\x y -> if x < imageWidth rgba && y < imageHeight rgba
+            then pixelAt rgba x y else PixelRGBA8 0 0 0 0) lw lh
 
     BlpPaletted {..} -> palettedLevels width height alphaBits blpPalette blpPalettedMipMaps
       where
@@ -108,6 +126,22 @@ decodeBlpMipmaps bs = do
       alphaBits = case blpPalettedMipMaps of
         mip0 : _ | BS.length mip0 < levelBytes (width * height) declared -> 0
         _ -> declared
+
+-- | Size of mip level @l@ of a @w@ x @h@ texture: each side halved @l@ times,
+-- but never below one pixel.
+levelSize :: Int -> Int -> Int -> (Int, Int)
+levelSize w h l = (max 1 (w `shiftR` l), max 1 (h `shiftR` l))
+
+-- | 'decodeJpeg', with errors JuicyPixels raises from pure code turned into
+-- 'Left'. Asynchronous exceptions are rethrown.
+safeDecodeJpeg :: ByteString -> Either String DynamicImage
+safeDecodeJpeg jpeg = unsafeDupablePerformIO $ do
+  result <- try (evaluate (force (decodeJpeg jpeg)))
+  case result of
+    Right decoded -> return decoded
+    Left e
+      | Just async <- fromException e -> throwIO (async :: SomeAsyncException)
+      | otherwise -> return . Left $ "JPEG decoding failed: " ++ displayException (e :: SomeException)
 
 -- | Bytes a paletted mip level of @n@ pixels takes: the index list and the
 -- alpha list.
@@ -129,10 +163,8 @@ palettedLevels width height alphaBits palette mips
       | BS.length mip >= levelBytes (w * h) alphaBits =
           ImageRGBA8 (generateImage (pixel w (BS.drop (w * h) mip) mip) w h) : go (l + 1) rest
       where
-        w = levelSide width l
-        h = levelSide height l
+        (w, h) = levelSize width height l
     go _ _ = []
-    levelSide side l = if side <= 0 then 0 else max 1 (side `shiftR` l)
 
     -- The palette's fourth byte is padding, not alpha.
     pixel w alphas indices x y = let
@@ -154,9 +186,9 @@ palettedLevels width height alphaBits palette mips
 mipMapsUpTo :: Int -- ^ Smallest side length to keep (2, 4, 16, ...)
   -> DynamicImage -- ^ Image the mipmaps are made for
   -> Int
-mipMapsUpTo minSize img = max 1 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) maxSide
+mipMapsUpTo minSize img = max 1 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) larger
   where
-    maxSide = max (dynamicMap imageWidth img) (dynamicMap imageHeight img)
+    larger = max (dynamicMap imageWidth img) (dynamicMap imageHeight img)
 
 -- | Encode with 'encodeBlpJpeg' and write the result to a file.
 writeBlpJpeg :: FilePath -> Int -> Int -> DynamicImage -> IO ()

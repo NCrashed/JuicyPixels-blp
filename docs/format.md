@@ -67,10 +67,13 @@ are stored but skipped.
 
 **Decoder.**
 
-- Slots of size 0, slots running past the end of the file, and slots that
-  overlap an earlier one are dropped
-  ([#7](https://github.com/NCrashed/JuicyPixels-blp/pull/7)).
-- The remaining slots are read in offset order.
+- Width and height must be between 1 and 65535; anything else is an error.
+- Slots are read by index from slot 0. The chain ends at the first slot that
+  is empty, runs past the end of the file, points into the header, or
+  overlaps an earlier level, and after the last level of the full chain.
+  This drops garbage in unused slots
+  ([#7](https://github.com/NCrashed/JuicyPixels-blp/pull/7)), including
+  slots that repeat the last level.
 - `decodeBlpMipmaps` returns the levels up to the first damaged one, so
   element `i` is always level `i`
   ([#9](https://github.com/NCrashed/JuicyPixels-blp/pull/9),
@@ -105,6 +108,11 @@ uint8  jpegHeader[jpegHeaderSize]
   general JPEG decoders report it as CMYK. The library maps the components
   across unchanged ([#11](https://github.com/NCrashed/JuicyPixels-blp/pull/11),
   [#17](https://github.com/NCrashed/JuicyPixels-blp/issues/17)).
+- **Frame size.** The decoder reads each level's frame size before decoding
+  it. A frame larger than the level is treated as damage, which also stops a
+  forged frame header from making the decoder allocate gigabytes. A smaller
+  frame is padded with transparent black to the level size, as Warcraft III
+  does.
 - **Header size.** Warcraft III crashes on a `jpegHeaderSize` above 624.
   The encoder shares the longest common prefix of all levels, up to 624
   bytes, and leaves every level at least one byte of its own

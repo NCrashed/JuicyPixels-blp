@@ -1,6 +1,19 @@
 Unreleased
 ==========
 
+Decoding untrusted files is safer:
+
+- Errors that JuicyPixels' JPEG decoder raises from pure code are returned
+  as `Left` instead of escaping as exceptions, also from tail mipmaps.
+- Width and height must be between 1 and 65535. Larger values used to
+  overflow the size checks and leave an exception in the decoded image.
+- Each JPEG level's frame size is read before decoding. A frame larger than
+  the level is rejected, so an 800-byte file can no longer demand gigabytes;
+  a smaller one is padded with transparent black.
+- Mipmap slots are read by index. A missing or garbage slot ends the chain
+  instead of shifting the later levels, and a garbage slot that points into
+  the palette no longer breaks the file.
+
 Breaking changes to `Codec.Picture.Blp.Internal.*`:
 
 - `BlpStruct` fields `blpFlags`, `blpPictureType` and `blpPictureSubType`

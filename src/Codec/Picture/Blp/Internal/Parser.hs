@@ -1,40 +1,87 @@
 {-|
-Attoparsec parser for BLP1 files. It handles the header, the mipmap slot
-table and the raw content; turning the content into images is done in
-"Codec.Picture.Blp".
+Parser for BLP1 files. It reads the header with attoparsec and takes the
+content (JPEG header, palette, mip levels) straight from the slots the header
+points at; turning the content into images is done in "Codec.Picture.Blp".
 
 This is an internal module: its API may change between minor versions.
 -}
 module Codec.Picture.Blp.Internal.Parser(
-    blpParser
+    parseBlp
   , blpVersion
   , dword
   , compressionParser
-  , blpJpegParser
-  , getPos
-  , skipToOffset
-  , blpPalettedParser
-  , parseBlp
+  , maxSide
+  , mipChainLength
+  , mipLevels
+  , jpegFrameSize
   ) where
 
 import Codec.Picture
-import Control.Monad
-import Data.Attoparsec.ByteString as AT
+import Data.Attoparsec.ByteString (Parser, parseOnly, string, count, (<?>))
+import qualified Data.Attoparsec.ByteString as AT
 import Data.Bits
 import Data.ByteString (ByteString)
-import Data.List (nub, sortOn)
 import Data.Word
 
 import qualified Data.Vector as V
-import qualified Data.Attoparsec.Internal.Types as AT
 import qualified Data.ByteString as BS
 
 import Codec.Picture.Blp.Internal.Data
 
--- | Parser for a whole BLP1 file. The argument is the length of the input,
--- used to drop mipmap slots that point past its end.
-blpParser :: Int -> Parser BlpStruct
-blpParser inputLen = do
+-- | Size of the fixed BLP1 header in bytes.
+headerSize :: Int
+headerSize = 156
+
+-- | Largest width or height the format allows.
+maxSide :: Int
+maxSide = 65535
+
+-- | Parse a BLP1 file into its header and raw content.
+--
+-- Width and height must be between 1 and 'maxSide'. Mip levels are taken
+-- slot by slot, see 'mipLevels'.
+parseBlp :: ByteString -> Either String BlpStruct
+parseBlp input = do
+  (mkStruct, compression, width, height, slots) <- parseOnly headerParser input
+  let w = fromIntegral width
+      h = fromIntegral height
+  if w < 1 || h < 1 || w > maxSide || h > maxSide
+    then Left $ "Invalid image size " ++ show width ++ "x" ++ show height
+    else Right ()
+  let levelsFrom start = mipLevels (BS.length input) start (mipChainLength w h) slots
+      slice (offset, size) = BS.take size (BS.drop offset input)
+  fmap mkStruct $ case compression of
+    BlpCompressionJPEG -> do
+      jpegHeaderSize <- parseOnly (AT.take headerSize *> dword <?> "jpeg header size") input
+      let headerEnd = headerSize + 4 + fromIntegral jpegHeaderSize
+      if headerEnd > BS.length input
+        then Left "jpeg header: not enough input"
+        else Right BlpJpeg {
+            blpJpegHeader = slice (headerSize + 4, fromIntegral jpegHeaderSize)
+          , blpJpegData = slice <$> levelsFrom headerEnd
+          }
+    BlpCompressionUncompressed -> do
+      let levels = levelsFrom headerSize
+          -- Some tools write only the palette entries they use, so the
+          -- palette ends where mip 0 starts. Missing entries are padded
+          -- with transparent black, so any index stays valid.
+          paletteEnd = case levels of
+            (offset, _) : _ -> min offset (headerSize + 1024)
+            [] -> headerSize + 1024
+          paletteBytes = slice (headerSize, paletteEnd - headerSize)
+          entries = BS.length paletteBytes `div` 4
+          entry i = let b k = BS.index paletteBytes (4 * i + k)
+                    in PixelRGBA8 (b 0) (b 1) (b 2) (b 3)
+      Right BlpPaletted {
+          blpPalette = V.generate 256 $ \i ->
+            if i < entries then entry i else PixelRGBA8 0 0 0 0
+        , blpPalettedMipMaps = slice <$> levels
+        }
+
+-- | The fixed header: a function completing the struct with its content,
+-- plus the fields needed to read the content.
+headerParser :: Parser (BlpExt -> BlpStruct, BlpCompression, Word32, Word32, [(Word32, Word32)])
+headerParser = do
   _ <- blpVersion
   blpCompression <- compressionParser
   blpAlphaBits <- dword <?> "alpha bits"
@@ -42,37 +89,10 @@ blpParser inputLen = do
   blpHeight <- dword <?> "height"
   blpExtra <- dword <?> "extra"
   blpHasMipmaps <- dword <?> "has mipmaps"
-  blpMipMapOffset <- replicateM 16 dword <?> "mipmaps offsets"
-  blpMipMapSize <- replicateM 16 dword <?> "mipmaps sizes"
-  -- BLP1 specifies 16 mipmap slots but most files only use a handful; the
-  -- unused slots should be zero but some real-world files contain garbage
-  -- offsets/sizes left behind by the writing tool. Drop any slot whose
-  -- advertised range would run past the end of the file, then sort the
-  -- survivors by offset so that the monotonic `skipToOffset` walks forward
-  -- correctly even if the file stored mipmaps out of order.
-  let rawMipMapsInfo = nub . filter ((> 0) . snd) $ blpMipMapOffset `zip` blpMipMapSize
-      fitsInput (o, s) =
-        fromIntegral o + fromIntegral s <= (fromIntegral inputLen :: Integer)
-      -- Sorting is not enough on its own. `skipToOffset` only ever moves
-      -- forward, so a slot starting inside a range that has already been
-      -- consumed can never be reached: the skip stays where it is, the
-      -- following `take` reads the wrong bytes, and every later mipmap is
-      -- dragged forward until the walk runs off the end of the file. Slots
-      -- holding garbage that points back into mipmap 0 are common enough in
-      -- the wild to matter, so keep only a forward-progressing run.
-      dropOverlapping :: Integer -> [(Word32, Word32)] -> [(Word32, Word32)]
-      dropOverlapping _ [] = []
-      dropOverlapping end (slot@(o, s) : rest)
-        | fromIntegral o >= end =
-            slot : dropOverlapping (fromIntegral o + fromIntegral s) rest
-        | otherwise = dropOverlapping end rest
-      mipMapsInfo =
-        dropOverlapping 0 . sortOn fst . filter fitsInput $ rawMipMapsInfo
-  blpExt <- case blpCompression of
-    BlpCompressionJPEG -> blpJpegParser mipMapsInfo
-    BlpCompressionUncompressed -> blpPalettedParser mipMapsInfo
-
-  return $ BlpStruct {..}
+  offsets <- count 16 dword <?> "mipmaps offsets"
+  sizes <- count 16 dword <?> "mipmaps sizes"
+  let mkStruct blpExt = BlpStruct {..}
+  return (mkStruct, blpCompression, blpWidth, blpHeight, offsets `zip` sizes)
 
 -- | The @BLP1@ magic. BLP0 and BLP2 files fail here.
 blpVersion :: Parser ByteString
@@ -86,9 +106,6 @@ dword = do
   where
   pack = BS.foldl' (\n h -> (n `shiftL` 8) .|. fromIntegral h) 0
 
-rgba8 :: Parser PixelRGBA8
-rgba8 = PixelRGBA8 <$> anyWord8 <*> anyWord8 <*> anyWord8 <*> anyWord8
-
 -- | Header dword @0x04@ (@content@): 0 is JPEG, 1 is paletted.
 compressionParser :: Parser BlpCompression
 compressionParser = (<?> "compression") $ do
@@ -98,58 +115,59 @@ compressionParser = (<?> "compression") $ do
     1 -> return BlpCompressionUncompressed
     _ -> fail $ "Unknown compression " ++ show i
 
--- | JPEG content: the shared header, then each mip level at its slot.
-blpJpegParser :: [(Word32, Word32)] -> Parser BlpExt
-blpJpegParser mps = (<?> "blp jpeg") $ do
-  headerSize <- dword <?> "jpeg header size"
-  blpJpegHeader <- AT.take (fromIntegral headerSize) <?> "jpeg header"
-  blpJpegData <- forM mps $ \(offset, size) -> do
-    skipToOffset offset
-    AT.take $ fromIntegral size
-  return $ BlpJpeg {..}
+-- | Number of levels in a full mip chain: halving the larger side down to 1,
+-- at most 16.
+mipChainLength :: Int -> Int -> Int
+mipChainLength w h = min 16 . length . takeWhile (>= 1) $ iterate (`div` 2) (max w h)
 
--- | Current offset into the input.
-getPos :: Parser Int
-getPos = AT.Parser $ \t pos more _ succ' -> succ' t pos more (AT.fromPos pos)
+-- | The mip levels a file holds, as (offset, size) in the input. Slots are
+-- read in order from slot 0, and the chain ends at the first slot that is
+-- empty, does not fit in the input, starts before the given content offset,
+-- or overlaps an earlier level, and after the given number of levels.
+--
+-- Unused slots should be zero, but tools leave garbage there: offsets past
+-- the end of the file, or copies of an earlier slot. Ending the chain there
+-- keeps element @i@ of the result level @i@.
+mipLevels :: Int -- ^ Length of the input
+  -> Int -- ^ Offset where the content starts
+  -> Int -- ^ Most levels to take
+  -> [(Word32, Word32)] -- ^ Mipmap slots: offset and size
+  -> [(Int, Int)]
+mipLevels inputLen start maxLevels = go [] . take maxLevels
+  where
+    go used ((offset, size) : rest)
+      | s > 0 && o >= toInteger start && o + s <= toInteger inputLen && not (any (overlaps (o, s)) used) =
+          (fromInteger o, fromInteger s) : go ((o, s) : used) rest
+      where
+        o = toInteger offset
+        s = toInteger size
+    go _ _ = []
+    overlaps (o, s) (o', s') = o < o' + s' && o' < o + s
 
--- | Skip forward to an offset. Offsets behind the current position are
--- ignored, so this never moves backwards.
-skipToOffset :: Word32 -> Parser ()
-skipToOffset i = do
-  pos <- getPos
-  let diff = fromIntegral i - pos
-  if diff <= 0 then return ()
-    else void $ AT.take diff
-
--- | Read up to 256 palette entries, bounded by the offset of the first
--- mipmap. Some BLP1 files in the wild (e.g. produced by community map
--- tools) only emit the palette entries that are actually used, so the
--- palette region between the main header and the first mipmap can be
--- shorter than the canonical 1024 bytes. We pad the resulting vector to
--- 256 entries with transparent black so the rest of the codebase, which
--- indexes the palette by an arbitrary `Word8`, stays sound.
-paletteParser :: [(Word32, Word32)] -> Parser (V.Vector PixelRGBA8)
-paletteParser mps = do
-  pos <- getPos
-  let firstOffset = case mps of
-        ((o, _):_) -> fromIntegral o
-        []         -> pos + 1024  -- no mipmaps: keep historical behaviour
-      available   = max 0 (firstOffset - pos)
-      nEntries    = min 256 (available `div` 4)
-  entries <- V.replicateM nEntries rgba8
-  return $ entries V.++ V.replicate (256 - nEntries) (PixelRGBA8 0 0 0 0)
-
--- | Paletted content: the palette, then the raw data of each mip level.
--- Splitting a level into index and alpha lists needs its size, which is
--- left to the decoder.
-blpPalettedParser :: [(Word32, Word32)] -> Parser BlpExt
-blpPalettedParser mps = do
-  blpPalette <- paletteParser mps
-  blpPalettedMipMaps <- forM mps $ \(offset, size) -> do
-    skipToOffset offset
-    AT.take (fromIntegral size) <?> "mipmap data"
-  return $ BlpPaletted {..}
-
--- | Parse a BLP1 file into its header and raw content.
-parseBlp :: ByteString -> Either String BlpStruct
-parseBlp bs = parseOnly (blpParser (BS.length bs)) bs
+-- | Width and height from the frame header (SOFn) of a JPEG stream, read
+-- without decoding the stream.
+jpegFrameSize :: ByteString -> Maybe (Int, Int)
+jpegFrameSize bs
+  | BS.take 2 bs == BS.pack [0xFF, 0xD8] = go 2
+  | otherwise = Nothing
+  where
+    go i = do
+      0xFF <- byte i
+      marker <- byte (i + 1)
+      if | marker == 0xFF -> go (i + 1) -- fill byte
+         | marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7) -> go (i + 2) -- no length
+         | marker == 0xD9 || marker == 0xDA -> Nothing -- end of image or start of scan
+         | isFrameHeader marker -> do
+             height <- word16 (i + 5)
+             width <- word16 (i + 7)
+             return (width, height)
+         | otherwise -> do
+             len <- word16 (i + 2)
+             if len < 2 then Nothing else go (i + 2 + len)
+    byte i = if i < BS.length bs then Just (BS.index bs i) else Nothing
+    word16 i = do
+      hi <- byte i
+      lo <- byte (i + 1)
+      return (fromIntegral hi * 256 + fromIntegral lo)
+    -- SOF0 to SOF15, except DHT (C4), JPG (C8) and DAC (CC).
+    isFrameHeader m = m >= 0xC0 && m <= 0xCF && m `notElem` [0xC4, 0xC8, 0xCC]

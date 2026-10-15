@@ -51,6 +51,7 @@ library
     , attoparsec            >= 0.12   && < 0.15
     , binary                >= 0.8    && < 0.10
     , bytestring            >= 0.10   && < 0.13
+    , deepseq               >= 1.4    && < 1.6
     , JuicyPixels           >= 3.2    && < 3.4
     , vector                >= 0.10   && < 0.14
 

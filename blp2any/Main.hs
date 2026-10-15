@@ -1,6 +1,9 @@
 module Main where
 
+import Data.Version (showVersion)
 import Options.Applicative.Simple
+
+import qualified Paths_JuicyPixels_blp as Paths
 
 import Statistics
 import Convert
@@ -32,8 +35,8 @@ main = do
       <*> option convertFormatR (long "input-format" <> short 'i' <> value UnspecifiedFormat <> help "Input file format, if not specified tries to infer from input file name. Values: blp png jpg tiff gif bmp.")
       <*> option convertFormatR (long "format" <> short 'f' <> value UnspecifiedFormat <> help "Output file format, if not specified tries to infer from output file name. Values: blp png jpg tiff gif bmp.")
       <*> option auto (long "quality" <> short 'q' <> value 90 <> help "Quality level for formats with lossy compression (default 90)")
-      <*> fmap not (switch (long "notPreserveStructure" <> short 'p' <> help "Will not produce subfolders while batch converting" ))
-      <*> switch (long "shallow" <> short 's' <> help "Not look into subfolders while batch converting")
+      <*> fmap not (switch (long "flatten" <> long "notPreserveStructure" <> short 'p' <> help "Write every converted file straight into OUTPUT_PATH instead of recreating subfolders (files with the same name overwrite each other)"))
+      <*> switch (long "shallow" <> short 's' <> help "Only convert files directly in INPUT_PATH, not in its subfolders")
       <*> option blpKindR (long "blpFormat" <> short 'b' <> value BlpJpeg <> help "Specifies what BLP internal format to use when converting to BLP. Values: jpg uncompressedWithAlpha uncompressedWithoutAlpha")
       <*> option auto (long "min-mipmap-size" <> value 1 <> help "Smallest mipmap side to keep when writing BLP (default 1)")
     addCommand "stats" "Groups the BLPs in a folder by header values and saves one example of each group" (uncurry collectStatistics) $ (,)
@@ -41,6 +44,6 @@ main = do
       <*> strArgument (metavar "OUTPUT_PATH" <> help "Here blp samples would be stored")
   runCmd
   where
-    ver = "0.1.0.0"
+    ver = showVersion Paths.version
     headerDesc = ""
     desc = "Converting BLP1 Warcraft III textures to/from PNG, JPEG, TIFF, GIF and BMP"

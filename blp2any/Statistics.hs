@@ -10,6 +10,7 @@ import Control.Monad
 import Data.Word 
 import System.Directory
 import System.FilePath
+import System.IO
 
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
@@ -26,14 +27,17 @@ collectSamples :: FilePath -> IO StatMap
 collectSamples dir = do 
   f <- doesDirectoryExist dir
   unless f $ fail $ "Provided directory " ++ dir ++ " doesn't exists!"
-  forEachFile dir ((".blp" ==).takeExtension) collectSample M.empty
-  
-collectSample :: StatMap -> FilePath -> IO StatMap 
-collectSample stats inputFile = do 
+  forEachFile True dir ((".blp" ==) . takeExtension) collectSample M.empty
+
+collectSample :: StatMap -> FilePath -> IO StatMap
+collectSample stats inputFile = do
   putStrLn $ "Sampling " ++ inputFile
-  fc <- BS.readFile inputFile
-  case parseBlp fc of 
-    Left err -> fail $ inputFile ++ ": " ++ err 
+  result <- tryAll (parseBlp <$> BS.readFile inputFile)
+  case join result of
+    Left err -> do
+      -- One unreadable file should not lose the statistics of the rest.
+      hPutStrLn stderr $ inputFile ++ ": skipped, " ++ err
+      return stats
     Right blp -> return $ adjust' (updateStat inputFile) (blpType blp) stats
 
 blpType :: BlpStruct -> BlpInfo 

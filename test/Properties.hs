@@ -46,7 +46,7 @@ texture w h = ImageRGBA8 $ generateImage px w h
     px x y = PixelRGBA8 (fromIntegral $ x * 37) (fromIntegral $ y * 59) (fromIntegral $ x * y) (fromIntegral $ 255 - x * 13)
 
 encode :: BlpFormat -> Int -> DynamicImage -> ByteString
-encode format levels = BSL.toStrict . either (error . show) id . encodeBlpWith (BlpEncodeOptions format levels)
+encode format levels = BSL.toStrict . either (error . show) id . encodeBlpWith defaultBlpEncodeOptions { blpFormat = format, blpMipLevels = levels }
 
 -- | One way of damaging a file.
 data Damage

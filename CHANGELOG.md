@@ -1,3 +1,28 @@
+Unreleased
+==========
+
+Paletted textures look better, and encoding takes new options. The
+encoder's output changes, and `BlpEncodeOptions` has new fields.
+
+- Paletted mipmaps after the first are averaged and mapped to the nearest
+  palette colour, instead of taking one pixel of the dithered image per
+  block. Measured against exact downscaling, levels 1 to 5 gain 8–17 dB on a
+  smooth gradient, about 11 dB on a noisy texture (15–16 dB to 26–27 dB),
+  and up to 25 dB on the small levels of a soft-edged sprite. Mip 0 is
+  unchanged. Paletted encoding is 20–30% slower for it.
+- Fully transparent pixels count as black when the palette is built, so
+  colours hidden under them no longer take palette entries.
+- `BlpEncodeOptions` gains `blpDither` (on by default) and `blpMaxSize`,
+  which halves the image until its larger side fits; Warcraft III shows
+  mip levels up to 512 pixels only. `blp2any` has `--no-dither` and
+  `--max-size PIXELS`. Build options from `defaultBlpEncodeOptions`; code
+  that applied the `BlpEncodeOptions` constructor to two arguments needs
+  updating. `BlpInvalidMaxSize` is a new `BlpEncodeError`.
+- JPEG textures made from RGBA images whose pixels are all opaque are
+  written without alpha.
+- `Codec.Picture.Blp.Internal.Encoder`: `toBlpStruct` takes
+  `BlpEncodeOptions`; `shrinkTo` is new.
+
 0.4.1.0 (2026-10-15)
 ====================
 

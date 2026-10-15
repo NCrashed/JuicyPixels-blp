@@ -261,25 +261,30 @@ mipMapsUpTo minSize img = max 1 . min 16 . length . takeWhile (>= max 1 minSize)
   where
     larger = max (dynamicMap imageWidth img) (dynamicMap imageHeight img)
 
--- | JPEG at quality 90 with the full mip chain.
+-- | JPEG at quality 90 with the full mip chain, dithered palettes, and no
+-- size limit.
 defaultBlpEncodeOptions :: BlpEncodeOptions
 defaultBlpEncodeOptions = BlpEncodeOptions {
     blpFormat = BlpFormatJpeg 90
   , blpMipLevels = 16
+  , blpDither = True
+  , blpMaxSize = Nothing
   }
 
 -- | Encode an image as a BLP1 file.
 encodeBlpWith :: BlpEncodeOptions -> DynamicImage -> Either BlpEncodeError BSL.ByteString
-encodeBlpWith BlpEncodeOptions{..} img
-  | w < 1 || h < 1 = Left BlpEmptyImage
+encodeBlpWith opts@BlpEncodeOptions{..} img
+  | dynamicMap imageWidth img < 1 || dynamicMap imageHeight img < 1 = Left BlpEmptyImage
+  | Just limit <- blpMaxSize, limit < 1 = Left $ BlpInvalidMaxSize limit
   | w > 65535 || h > 65535 = Left $ BlpImageTooLarge w h
   | BlpFormatJpeg quality <- blpFormat, quality < 1 || quality > 100 = Left $ BlpInvalidJpegQuality quality
   | BSL.length file > 0xFFFFFFFF = Left BlpFileTooLarge
   | otherwise = Right file
   where
-    w = dynamicMap imageWidth img
-    h = dynamicMap imageHeight img
-    file = encodeBlp (toBlpStruct blpFormat blpMipLevels img)
+    source = maybe img (`shrinkTo` img) blpMaxSize
+    w = dynamicMap imageWidth source
+    h = dynamicMap imageHeight source
+    file = encodeBlp (toBlpStruct opts source)
 
 -- | Encode an image with 'encodeBlpWith' and write it to a file.
 writeBlpWith :: FilePath -> BlpEncodeOptions -> DynamicImage -> IO (Either BlpEncodeError ())
@@ -307,7 +312,7 @@ encodeBlpJpeg :: Int -- ^ JPEG quality, clamped to 1..100
   -> DynamicImage
   -> BSL.ByteString
 encodeBlpJpeg quality numMips =
-  orThrow "encodeBlpJpeg" . encodeBlpWith (BlpEncodeOptions (BlpFormatJpeg (max 1 (min 100 quality))) numMips)
+  orThrow "encodeBlpJpeg" . encodeBlpWith defaultBlpEncodeOptions { blpFormat = BlpFormatJpeg (max 1 (min 100 quality)), blpMipLevels = numMips }
 {-# DEPRECATED encodeBlpJpeg "Use encodeBlpWith with BlpFormatJpeg" #-}
 
 -- | Encode with a 256 colour palette and 8-bit alpha; see 'BlpFormatPaletted'.
@@ -315,7 +320,7 @@ encodeBlpUncompressedWithAlpha :: Int -- ^ Number of mip levels to write
   -> DynamicImage
   -> BSL.ByteString
 encodeBlpUncompressedWithAlpha numMips =
-  orThrow "encodeBlpUncompressedWithAlpha" . encodeBlpWith (BlpEncodeOptions (BlpFormatPaletted True) numMips)
+  orThrow "encodeBlpUncompressedWithAlpha" . encodeBlpWith defaultBlpEncodeOptions { blpFormat = BlpFormatPaletted True, blpMipLevels = numMips }
 {-# DEPRECATED encodeBlpUncompressedWithAlpha "Use encodeBlpWith with BlpFormatPaletted True" #-}
 
 -- | Encode with a 256 colour palette and no alpha; see 'BlpFormatPaletted'.
@@ -323,7 +328,7 @@ encodeBlpUncompressedWithoutAlpha :: Int -- ^ Number of mip levels to write
   -> DynamicImage
   -> BSL.ByteString
 encodeBlpUncompressedWithoutAlpha numMips =
-  orThrow "encodeBlpUncompressedWithoutAlpha" . encodeBlpWith (BlpEncodeOptions (BlpFormatPaletted False) numMips)
+  orThrow "encodeBlpUncompressedWithoutAlpha" . encodeBlpWith defaultBlpEncodeOptions { blpFormat = BlpFormatPaletted False, blpMipLevels = numMips }
 {-# DEPRECATED encodeBlpUncompressedWithoutAlpha "Use encodeBlpWith with BlpFormatPaletted False" #-}
 
 orThrow :: String -> Either BlpEncodeError a -> a

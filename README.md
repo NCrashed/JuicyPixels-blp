@@ -39,10 +39,17 @@ main = do
     palette, with 8-bit alpha or none).
   - `blpMipLevels`: how many mip levels to write, clamped to 1 and the full
     chain. `mipMapsUpTo` computes it from a smallest side length.
+  - `blpDither`: whether paletted textures are dithered (on by default;
+    turn it off for icons and pixel art).
+  - `blpMaxSize`: halve the image until its larger side is at most this.
+    Warcraft III shows mip levels up to 512 pixels only, so larger ones only
+    make the file bigger.
+
+  Start from `defaultBlpEncodeOptions` and change the fields you need.
 
   They return `Left` for images they cannot encode (`BlpEncodeError`): an
-  empty image, a side above 65535, an invalid JPEG quality, or a file over
-  4 GiB.
+  empty image, a side above 65535 (after `blpMaxSize`), an invalid JPEG
+  quality or size limit, or a file over 4 GiB.
 - The older `encodeBlpJpeg`, `encodeBlpUncompressedWithAlpha`,
   `encodeBlpUncompressedWithoutAlpha` and their `write` variants are
   deprecated wrappers around `encodeBlpWith`.
@@ -79,8 +86,9 @@ minor versions.
 - **BLP0 and BLP2.** Only BLP1 is supported. BLP0 keeps mipmaps in separate
   `.b00`–`.b15` files; BLP2 is the World of Warcraft variant
   ([#3](https://github.com/NCrashed/JuicyPixels-blp/issues/3)).
-- **Lossy palette.** Uncompressed encoding quantises to 256 colours with
-  dithering, so it is lossy for images with more colours.
+- **Lossy palette.** Uncompressed encoding quantises to 256 colours, so it is
+  lossy for images with more colours. Mipmaps after the first are mapped to
+  the first level's palette.
 - **Fixed header values.** The encoder writes `extra` as 3 with alpha and 5
   without, and `hasMipmaps` as 5, or 0 for a single level.
 
@@ -89,7 +97,8 @@ minor versions.
 ```
 blp2any convert INPUT_PATH OUTPUT_PATH [-i FORMAT] [-f FORMAT] [-q QUALITY]
                 [-b jpg|uncompressedWithAlpha|uncompressedWithoutAlpha]
-                [--min-mipmap-size N] [-s|--shallow] [-p|--flatten] [--timeout SECONDS]
+                [--min-mipmap-size N] [--max-size PIXELS] [--no-dither]
+                [-s|--shallow] [-p|--flatten] [--timeout SECONDS]
 blp2any stats DIRECTORY OUTPUT_PATH
 ```
 
@@ -104,11 +113,17 @@ blp2any stats DIRECTORY OUTPUT_PATH
   - `--timeout SECONDS` gives up on a file that takes longer; use it on
     untrusted input, where some corrupt JPEG data makes decoding hang. The
     output never overwrites its input.
-  - When writing BLP, `-b` picks the internal format (JPEG by default) and
-    `--min-mipmap-size` the smallest mip level to keep. The default is 1,
-    which writes every level down to 1×1. A larger value leaves textures
-    without their smallest levels; Warcraft III draws missing levels as
-    transparent black, so this is only safe for interface images.
+  - When writing BLP:
+    - `-b` picks the internal format, JPEG by default.
+    - `--max-size PIXELS` halves the image until its larger side fits;
+      Warcraft III shows mip levels up to 512 pixels only.
+    - `--no-dither` turns off dithering for paletted output, which suits
+      icons and pixel art.
+    - `--min-mipmap-size` is the smallest mip level to keep. The default is
+      1, which writes every level down to 1×1. A larger value leaves
+      textures without their smallest levels; Warcraft III draws missing
+      levels as transparent black, so this is only safe for interface
+      images.
 - **`stats`** groups the BLP files in a directory by their header values
   and copies one example of each group to `OUTPUT_PATH`. Files it cannot
   read are reported and skipped. It helps when hunting for unusual files.

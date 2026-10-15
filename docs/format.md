@@ -87,9 +87,9 @@ are stored but skipped.
   if they are written. Downscaling averages 2×2 blocks, reusing the edge pixel
   on odd or one-pixel sides. Colour is weighted by alpha, so transparent
   pixels do not darken the edges of sprites; alpha, including the alpha list
-  of paletted textures, is a plain average. Palette indices take the
-  top-left pixel of each block
-  ([#26](https://github.com/NCrashed/JuicyPixels-blp/issues/26)).
+  of paletted textures, is a plain average. Paletted levels after mip 0 are
+  averaged this way and then mapped to the nearest colour of mip 0's
+  palette ([#26](https://github.com/NCrashed/JuicyPixels-blp/issues/26)).
 - `mipMapsUpTo` counts the levels whose larger side is at least a minimum;
   with 1 that is the full chain.
 - `blp2any --min-mipmap-size N` with `N > 1` writes a deliberately short
@@ -154,7 +154,10 @@ per mip level:
   starts earlier than `0x9C + 1024`, are accepted and padded
   ([#6](https://github.com/NCrashed/JuicyPixels-blp/pull/6)).
 - **Encoder.** It quantises colours to 256 with JuicyPixels' median-cut
-  palette and dithering, and writes 8-bit alpha or none.
+  palette, with dithering unless `blpDither` is off, and writes 8-bit alpha
+  or none. With alpha, the colour of fully transparent pixels is treated as
+  black when building the palette, so colours hidden under them take no
+  entries; they are invisible in the decoded texture either way.
 
 ## Deviations found in real files
 

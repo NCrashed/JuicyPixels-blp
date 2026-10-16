@@ -210,6 +210,12 @@ jpegTests = testGroup "jpeg"
       img <- decodeRGBA . BSL.toStrict $ enc (BlpFormatJpeg 100) 1 (ImageRGBA8 opaqueGradient)
       let d = maxDiff opaqueGradient img
       assertBool ("max channel difference " ++ show d) (d <= 8)
+  , testCase "a JPEG level without a frame header is an error" $ do
+      -- Turn the shared header's SOF0 segment into an APP1 segment of the
+      -- same length, so the stream reaches the scan without a frame size.
+      let (before, sof) = BS.breakSubstring (BS.pack [0xFF, 0xC0]) jpegFile
+      assertBool "the encoder writes SOF0" (not (BS.null sof))
+      assertLeft "no frame header" . decodeBlp $ before <> BS.pack [0xFF, 0xE1] <> BS.drop 2 sof
   , testCase "all three mip levels decode" $ do
       levels <- decodeLevels jpegFile
       sizes levels @?= [(16, 16), (8, 8), (4, 4)]

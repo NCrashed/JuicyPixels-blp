@@ -11,7 +11,7 @@ module Main(main) where
 import Codec.Picture
 import Codec.Picture.Blp
 import Codec.Picture.Blp.Internal.Convert (jpegAlphaIsUsable)
-import Codec.Picture.Blp.Internal.Dxt (DxtFormat(..), decodeDxt, dxtLevelBytes)
+import Codec.Picture.Blp.Internal.Dxt (DxtFormat(..), decodeDxt, dxtLevelBytes, encodeDxt)
 import Codec.Picture.Blp.Internal.Encoder (createMipMaps)
 import Codec.Picture.Jpg (encodeDirectJpegAtQualityWithMetadata)
 import Control.DeepSeq
@@ -52,6 +52,10 @@ main = defaultMain
         bench "decodeDxt/2048 dxt1" $ nf (fmap imageData . decodeDxt (Dxt1 True) 2048 2048) blocks
     , env (return . force $ dxtBlocks Dxt5 2048) $ \blocks ->
         bench "decodeDxt/2048 dxt5" $ nf (fmap imageData . decodeDxt Dxt5 2048 2048) blocks
+    , env (return . force $ convertRGBA8 (texture 512)) $ \img ->
+        bench "encodeDxt/512 dxt1" $ nf (encodeDxt (Dxt1 False)) img
+    , env (return . force $ convertRGBA8 (texture 512)) $ \img ->
+        bench "encodeDxt/512 dxt5" $ nf (encodeDxt Dxt5) img
     ]
   ]
 

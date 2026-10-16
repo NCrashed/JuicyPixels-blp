@@ -31,6 +31,8 @@ produced. This changes the type of every decoding function.
   `BlpFormatPaletted`; unlike them, these return `Left` instead of throwing.
 - The README lists what is out of scope on purpose: writing BLP2, BLP0,
   BLP2 with JPEG content, and others.
+- `Codec.Picture.Blp.Internal.Dxt` can encode: `encodeDxt` writes DXT1, DXT3
+  and DXT5 blocks, the first part of writing BLP2.
 - Internal modules: the parser and decoder return `BlpDecodeError`, and the
   decoder `Image PixelRGBA8`.
 

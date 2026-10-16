@@ -8,6 +8,7 @@ import Codec.Picture.Blp.Internal.Dxt
 import Fixture (colourBlock, dxt3Alpha, dxt5Alpha)
 import Data.ByteString (ByteString)
 import Data.Either (isLeft)
+import Control.Monad (forM_)
 import Data.Word
 import Test.QuickCheck
 import Test.Tasty
@@ -62,6 +63,7 @@ dxtTests = testGroup "dxt"
       fmap imageData (decodeDxt (Dxt1 False) 4 4 (block <> BS.replicate 9 0xAB))
         @?= fmap imageData (decodeDxt (Dxt1 False) 4 4 block)
   , testProperty "matches a direct transcription of the format" matchesReference
+  , encoderTests
   ]
 
 rgba :: Word8 -> Word8 -> Word8 -> Word8 -> PixelRGBA8
@@ -140,3 +142,118 @@ reference fmt w h bs = [pixel x y | y <- [0 .. h - 1], x <- [0 .. w - 1]]
         table
           | a0 > a1 = [a0, a1] ++ [((7 - j) * a0 + j * a1) `div` 7 | j <- [1 .. 6]]
           | otherwise = [a0, a1] ++ [((5 - j) * a0 + j * a1) `div` 5 | j <- [1 .. 4]] ++ [0, 255]
+
+encoderTests :: TestTree
+encoderTests = testGroup "encoding"
+  [ testCase "output is whole blocks and decodes to the same size" $
+      forM_ [Dxt1 False, Dxt1 True, Dxt3, Dxt5] $ \fmt -> do
+        let img = generateImage (\x y -> PixelRGBA8 (fromIntegral $ x * 40) (fromIntegral $ y * 70) 99 200) 5 3
+            bytes = encodeDxt fmt img
+        BS.length bytes @?= dxtLevelBytes fmt 5 3
+        fmap (\d -> (imageWidth d, imageHeight d)) (decodeDxt fmt 5 3 bytes) @?= Right (5, 3)
+  , testProperty "blocks of at most two RGB565 colours round-trip exactly" twoColours
+  , testProperty "a block of one colour is within 1 per channel" oneColour
+  , testProperty "DXT1 with alpha: below 128 is transparent, the rest opaque" dxt1Alpha
+  , testProperty "DXT3 alpha is the nearest multiple of 17" dxt3Rounding
+  , testProperty "DXT5 alpha with two values per block is exact" dxt5TwoAlphas
+  , testCase "DXT5 uses the mode with 0 and 255 when it fits better" $ do
+      let img = generateImage (\x y -> PixelRGBA8 9 9 9 ([0, 100, 110, 255] !! ((x + y) `mod` 4))) 4 4
+          alpha (PixelRGBA8 _ _ _ a) = a
+      map alpha (pixels (roundTrip Dxt5 img)) @?= map alpha (pixels img)
+  , testCase "two colours whose difference is orthogonal to grey round-trip" $ do
+      -- (16, -16, 0) is orthogonal to (1, 1, 1); a principal axis search
+      -- started from (1, 1, 1) collapsed here to the mean colour.
+      let img = generateImage (\x y -> if even (x + y) then PixelRGBA8 239 239 41 255 else PixelRGBA8 255 223 41 255) 4 4
+      pixels (roundTrip (Dxt1 False) img) @?= pixels img
+  , testCase "endpoints are refined by least squares" $ do
+      -- One black, fourteen mid-grey and one white pixel: the range fit puts
+      -- the endpoints at black and white, which no index decodes near the
+      -- grey. The squared error was 12802 when this was written; without
+      -- refinement it is 19851.
+      let grey i = case i of { 0 -> 0; 15 -> 255; _ -> 128 } :: Word8
+          img = generateImage (\x y -> let v = grey (4 * y + x) in PixelRGBA8 v v v 255) 4 4
+          chans (PixelRGBA8 r g b _) = map fromIntegral [r, g, b] :: [Int]
+          err = sum [(a - b) ^ (2 :: Int) | (p, q) <- zip (pixels img) (pixels (roundTrip (Dxt1 False) img)), (a, b) <- zip (chans p) (chans q)]
+      assertBool ("squared error " ++ show err) (err < 15000)
+  , testCase "a smooth gradient keeps its quality" $ do
+      -- 44.0 dB (DXT1) and 45.3 dB (DXT5, with alpha) when this was written.
+      let img = generateImage (\x y -> PixelRGBA8 (fromIntegral x) (fromIntegral (y * 2)) (fromIntegral (x + y)) (fromIntegral (255 - y))) 256 128
+          quality fmt alpha = psnr alpha img (roundTrip fmt img)
+      assertBool "DXT1" (quality (Dxt1 False) False > 42)
+      assertBool "DXT5" (quality Dxt5 True > 42)
+  ]
+
+roundTrip :: DxtFormat -> Image PixelRGBA8 -> Image PixelRGBA8
+roundTrip fmt img = either error id $ decodeDxt fmt (imageWidth img) (imageHeight img) (encodeDxt fmt img)
+
+pixels :: Image PixelRGBA8 -> [PixelRGBA8]
+pixels img = [pixelAt img x y | y <- [0 .. imageHeight img - 1], x <- [0 .. imageWidth img - 1]]
+
+psnr :: Bool -> Image PixelRGBA8 -> Image PixelRGBA8 -> Double
+psnr alpha a b = 10 * logBase 10 (255 * 255 / (fromIntegral (sum errs) / fromIntegral (length errs)))
+  where
+    chans (PixelRGBA8 r g bl al) = map fromIntegral ([r, g, bl] ++ [al | alpha]) :: [Int]
+    errs = [(x - y) ^ (2 :: Int) | (p, q) <- zip (pixels a) (pixels b), (x, y) <- zip (chans p) (chans q)]
+
+-- | A random image of w x h, each pixel from the given generator.
+blocky :: Int -> Int -> (Int -> Int -> Gen PixelRGBA8) -> Gen (Image PixelRGBA8)
+blocky w h pixelFor = do
+  rows <- sequence [sequence [pixelFor x y | x <- [0 .. w - 1]] | y <- [0 .. h - 1]]
+  return $ generateImage (\x y -> rows !! y !! x) w h
+
+
+-- | One random value per 4x4 block of a w x h image, looked up by pixel.
+perBlock :: Int -> Int -> Gen a -> Gen (Int -> Int -> a)
+perBlock w h gen = do
+  let across = (w + 3) `div` 4
+  values <- vectorOf (across * ((h + 3) `div` 4)) gen
+  return $ \x y -> values !! ((y `div` 4) * across + x `div` 4)
+-- | A colour whose RGB565 form expands back to itself.
+exact565 :: Gen (Word8, Word8, Word8)
+exact565 = do
+  r <- choose (0, 31 :: Int)
+  g <- choose (0, 63 :: Int)
+  b <- choose (0, 31 :: Int)
+  let e5 v = fromIntegral (v * 8 + v `div` 4)
+      e6 v = fromIntegral (v * 4 + v `div` 16)
+  return (e5 r, e6 g, e5 b)
+
+sizes :: Gen (Int, Int)
+sizes = (,) <$> choose (1, 13) <*> choose (1, 13)
+
+twoColours :: Property
+twoColours = forAll sizes $ \(w, h) -> forAll (elements [Dxt1 False, Dxt3, Dxt5]) $ \fmt -> do
+  pairOf <- perBlock w h ((,) <$> exact565 <*> exact565)
+  img <- blocky w h $ \x y -> do
+    let (c1, c2) = pairOf x y
+    (r, g, b) <- elements [c1, c2]
+    return (PixelRGBA8 r g b 255)
+  let rgb (PixelRGBA8 r g b _) = (r, g, b)
+  return $ map rgb (pixels (roundTrip fmt img)) === map rgb (pixels img)
+
+oneColour :: Property
+oneColour = forAll (elements [Dxt1 False, Dxt1 True, Dxt3, Dxt5]) $ \fmt ->
+  forAll ((,,) <$> arbitrary <*> arbitrary <*> arbitrary) $ \(r, g, b) ->
+    let img = generateImage (\_ _ -> PixelRGBA8 r g b 255) 4 4
+        close a a' = abs (fromIntegral a - fromIntegral a' :: Int) <= 1
+    in conjoin [ counterexample (show p) (close r r' && close g g' && close b b')
+               | p@(PixelRGBA8 r' g' b' _) <- pixels (roundTrip fmt img) ]
+
+dxt1Alpha :: Property
+dxt1Alpha = forAll sizes $ \(w, h) -> do
+  img <- blocky w h $ \_ _ -> PixelRGBA8 <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+  let alpha (PixelRGBA8 _ _ _ a) = a
+  return $ map alpha (pixels (roundTrip (Dxt1 True) img)) === [if alpha p < 128 then 0 else 255 | p <- pixels img]
+
+dxt3Rounding :: Property
+dxt3Rounding = forAll sizes $ \(w, h) -> do
+  img <- blocky w h $ \_ _ -> PixelRGBA8 0 0 0 <$> arbitrary
+  let alpha (PixelRGBA8 _ _ _ a) = fromIntegral a :: Int
+  return $ map alpha (pixels (roundTrip Dxt3 img)) === [17 * ((alpha p + 8) `div` 17) | p <- pixels img]
+
+dxt5TwoAlphas :: Property
+dxt5TwoAlphas = forAll sizes $ \(w, h) -> do
+  pairOf <- perBlock w h ((,) <$> arbitrary <*> arbitrary)
+  img <- blocky w h $ \x y -> PixelRGBA8 9 9 9 <$> (let (a1, a2) = pairOf x y in elements [a1, a2])
+  let alpha (PixelRGBA8 _ _ _ a) = a
+  return $ map alpha (pixels (roundTrip Dxt5 img)) === map alpha (pixels img)

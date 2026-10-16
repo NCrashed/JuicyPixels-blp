@@ -116,11 +116,6 @@ compressionParser = (<?> "compression") $ do
     1 -> return BlpCompressionUncompressed
     _ -> fail $ "Unknown compression " ++ show i
 
--- | Number of levels in a full mip chain: halving the larger side down to 1,
--- at most 16.
-mipChainLength :: Int -> Int -> Int
-mipChainLength w h = min 16 . length . takeWhile (>= 1) $ iterate (`div` 2) (max w h)
-
 -- | The mip levels a file holds, as (offset, size) in the input. Slots are
 -- read in order from slot 0, and the chain ends at the first slot that is
 -- empty, does not fit in the input, starts before the given content offset,

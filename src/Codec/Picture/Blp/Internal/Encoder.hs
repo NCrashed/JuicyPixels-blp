@@ -107,8 +107,7 @@ toBlpStruct BlpEncodeOptions{..} img = BlpStruct {
     rgba = convertRGBA8 img
     width = dynamicMap imageWidth img
     height = dynamicMap imageHeight img
-    chainLength = length . takeWhile (>= 1) $ iterate (`div` 2) (max width height)
-    numLevels = max 1 . min 16 $ min chainLength blpMipLevels
+    numLevels = max 1 $ min (mipChainLength width height) blpMipLevels
 
 -- | Whether any pixel is less than fully opaque.
 anyTransparent :: Image PixelRGBA8 -> Bool

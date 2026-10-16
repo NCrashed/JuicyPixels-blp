@@ -10,6 +10,8 @@ This is an internal module: its API may change between minor versions.
 module Codec.Picture.Blp.Internal.Data(
     BlpStruct(..)
   , blpCompression
+  , mipChainLength
+  , mipLevelsDownTo
   , BlpCompression(..)
   , BlpExt(..)
   , BlpFormat(..)
@@ -67,3 +69,14 @@ blpCompression blp = case blpExt blp of
   BlpJpeg {} -> BlpCompressionJPEG
   BlpPaletted {} -> BlpCompressionUncompressed
 
+
+-- | Number of levels in a full mip chain: halving the larger side down to 1,
+-- at most 16.
+mipChainLength :: Int -> Int -> Int
+mipChainLength = mipLevelsDownTo 1
+
+-- | Number of mip levels of a @w@ x @h@ texture, mip 0 included, whose
+-- larger side is at least the given length (taken as 1 when smaller), at
+-- most 16. Zero when the texture itself is smaller.
+mipLevelsDownTo :: Int -> Int -> Int -> Int
+mipLevelsDownTo minSide w h = min 16 . length . takeWhile (>= max 1 minSide) $ iterate (`div` 2) (max w h)

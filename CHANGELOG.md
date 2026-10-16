@@ -15,6 +15,9 @@ Unreleased
   to `Internal.Data`, next to the new `mipLevelsDownTo`. The parser, the
   encoder and `mipMapsUpTo` now share them instead of three copies of the
   same count.
+- New internal module `Codec.Picture.Blp.Internal.Dxt`: a DXT1, DXT3 and
+  DXT5 block decoder (`decodeDxt`), the first part of BLP2 support. BLP2
+  files are not decoded yet.
 
 0.5.0.0 (2026-10-16)
 ====================

@@ -43,6 +43,7 @@ library
     Codec.Picture.Blp.Internal.Convert
     Codec.Picture.Blp.Internal.Data
     Codec.Picture.Blp.Internal.Decoder
+    Codec.Picture.Blp.Internal.Dxt
     Codec.Picture.Blp.Internal.Encoder
     Codec.Picture.Blp.Internal.Parser
   other-modules:
@@ -116,6 +117,7 @@ test-suite spec
   ghc-options:         -rtsopts -with-rtsopts=-M1g
   other-modules:
     Deprecated
+    Dxt
     Fixture
     Properties
   default-language:    Haskell2010

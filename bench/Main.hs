@@ -11,6 +11,7 @@ module Main(main) where
 import Codec.Picture
 import Codec.Picture.Blp
 import Codec.Picture.Blp.Internal.Convert (jpegAlphaIsUsable)
+import Codec.Picture.Blp.Internal.Dxt (DxtFormat(..), decodeDxt, dxtLevelBytes)
 import Codec.Picture.Blp.Internal.Encoder (createMipMaps)
 import Codec.Picture.Jpg (encodeDirectJpegAtQualityWithMetadata)
 import Control.DeepSeq
@@ -47,6 +48,10 @@ main = defaultMain
         bench "jpegAlphaIsUsable/2048 varying" $ nf jpegAlphaIsUsable img
     , env (return . force $ cmykLevel (convertRGBA8 (opaque 2048))) $ \img ->
         bench "jpegAlphaIsUsable/2048 opaque" $ nf jpegAlphaIsUsable img
+    , env (return . force $ dxtBlocks (Dxt1 True) 2048) $ \blocks ->
+        bench "decodeDxt/2048 dxt1" $ nf (fmap imageData . decodeDxt (Dxt1 True) 2048 2048) blocks
+    , env (return . force $ dxtBlocks Dxt5 2048) $ \blocks ->
+        bench "decodeDxt/2048 dxt5" $ nf (fmap imageData . decodeDxt Dxt5 2048 2048) blocks
     ]
   ]
 
@@ -109,3 +114,8 @@ setAlphaBits bits file = BS.take 8 file <> BS.pack [fromIntegral (bits `shiftR` 
 cmykLevel :: Image PixelRGBA8 -> DynamicImage
 cmykLevel img = either error id . decodeJpeg . BSL.toStrict $
   encodeDirectJpegAtQualityWithMetadata 90 mempty (pixelMap (\(PixelRGBA8 r g b a) -> PixelCMYK8 b g r a) img)
+
+-- | Pseudo-random blocks for an n x n DXT image: every colour and alpha
+-- mode occurs.
+dxtBlocks :: DxtFormat -> Int -> ByteString
+dxtBlocks fmt n = BS.pack [fromIntegral ((i * 2654435761) `shiftR` 13) | i <- [0 .. dxtLevelBytes fmt n n - 1]]

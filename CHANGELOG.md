@@ -4,6 +4,10 @@ Unreleased
 - The benchmarks accept `tasty-bench` 0.5. This only matters when building
   them; the library and `blp2any` are unchanged. 0.5.0.0 has the same
   bound in a Hackage revision.
+- The option, result and error types of `Codec.Picture.Blp` are now defined
+  outside the internal modules, so later changes to the internal file
+  structure cannot change them. `Codec.Picture.Blp.Internal.Data` still
+  re-exports the ones it exported before; no code needs changing.
 
 0.5.0.0 (2026-10-16)
 ====================

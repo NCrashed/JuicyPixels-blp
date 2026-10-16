@@ -44,6 +44,8 @@ library
     Codec.Picture.Blp.Internal.Data
     Codec.Picture.Blp.Internal.Encoder
     Codec.Picture.Blp.Internal.Parser
+  other-modules:
+    Codec.Picture.Blp.Types
 
   default-language:    Haskell2010
   build-depends:

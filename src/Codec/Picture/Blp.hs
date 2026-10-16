@@ -69,6 +69,7 @@ import Codec.Picture.Blp.Internal.Convert
 import Codec.Picture.Blp.Internal.Data
 import Codec.Picture.Blp.Internal.Encoder
 import Codec.Picture.Blp.Internal.Parser
+import Codec.Picture.Blp.Types
 
 -- | Read a BLP file and decode its full size image. IO errors, such as a
 -- missing file, are thrown; malformed contents give 'Left'.
@@ -97,18 +98,6 @@ decodeBlpWith opts bs = do
 -- 'defaultBlpDecodeOptions'. See 'decodeBlpMipmapsWith'.
 decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
 decodeBlpMipmaps = decodeBlpMipmapsWith defaultBlpDecodeOptions
-
--- | Options for decoding.
-newtype BlpDecodeOptions = BlpDecodeOptions {
-  -- | Largest full size image to decode, in pixels. Larger files are
-  -- rejected before anything is allocated; decoding takes about four bytes
-  -- per pixel.
-  blpMaxPixels :: Int
-} deriving (Eq, Show)
-
--- | Up to 8192x8192 pixels, about 256 MiB for the full size image.
-defaultBlpDecodeOptions :: BlpDecodeOptions
-defaultBlpDecodeOptions = BlpDecodeOptions { blpMaxPixels = 8192 * 8192 }
 
 -- | Decode the full size image followed by its mipmaps, all 'ImageRGBA8'.
 --
@@ -189,15 +178,6 @@ safeDecodeJpeg jpeg = unsafeDupablePerformIO $ do
       | Just async <- fromException e -> throwIO (async :: SomeAsyncException)
       | otherwise -> return . Left $ "JPEG decoding failed: " ++ displayException (e :: SomeException)
 
--- | What a BLP file holds, read from its header without decoding any pixels.
-data BlpInfo = BlpInfo {
-    blpInfoCompression :: !BlpCompression -- ^ JPEG or paletted content
-  , blpInfoWidth :: !Int -- ^ Width of the full size image
-  , blpInfoHeight :: !Int -- ^ Height of the full size image
-  , blpInfoAlphaBits :: !Int -- ^ The @alphaBits@ header field, as stored
-  , blpInfoMipLevels :: !Int -- ^ Mip levels with usable slots, the full size image included
-  } deriving (Eq, Show)
-
 -- | Read the header of a BLP file. This checks what 'decodeBlp' checks before
 -- decoding (format, size, mipmap slots) but decodes no pixels, so it is cheap
 -- on any input. Use it to reject textures that are too large.
@@ -260,16 +240,6 @@ mipMapsUpTo :: Int -- ^ Smallest side length to keep (2, 4, 16, ...)
 mipMapsUpTo minSize img = max 1 . min 16 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) larger
   where
     larger = max (dynamicMap imageWidth img) (dynamicMap imageHeight img)
-
--- | JPEG at quality 90 with the full mip chain, dithered palettes, and no
--- size limit.
-defaultBlpEncodeOptions :: BlpEncodeOptions
-defaultBlpEncodeOptions = BlpEncodeOptions {
-    blpFormat = BlpFormatJpeg 90
-  , blpMipLevels = 16
-  , blpDither = True
-  , blpMaxSize = Nothing
-  }
 
 -- | Encode an image as a BLP1 file.
 encodeBlpWith :: BlpEncodeOptions -> DynamicImage -> Either BlpEncodeError BSL.ByteString

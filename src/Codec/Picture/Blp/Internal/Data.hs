@@ -2,6 +2,9 @@
 The structure of a BLP1 file as the parser reads it and the encoder writes
 it. See @docs/format.md@ in the source repository for the full format.
 
+'BlpCompression', 'BlpFormat', t'BlpEncodeOptions' and 'BlpEncodeError' are
+re-exported from "Codec.Picture.Blp", where they belong to the stable API.
+
 This is an internal module: its API may change between minor versions.
 -}
 module Codec.Picture.Blp.Internal.Data(
@@ -19,6 +22,8 @@ import Data.ByteString (ByteString)
 import Data.Vector (Vector)
 import Data.Word
 import GHC.Generics
+
+import Codec.Picture.Blp.Types
 
 -- | A parsed BLP1 file: the 156 byte header and the image data after it. The
 -- content type (header dword @0x04@) follows from 'blpExt', see
@@ -56,49 +61,9 @@ data BlpExt =
     }
   deriving (Show, Generic)
 
--- | Header dword @0x04@.
-data BlpCompression =
-    BlpCompressionJPEG -- ^ 0: JPEG
-  | BlpCompressionUncompressed -- ^ 1: 256 colour palette
-  deriving (Eq, Ord, Enum, Bounded, Show, Generic)
-
 -- | Header dword @0x04@ (@content@ in the specification) of a file.
 blpCompression :: BlpStruct -> BlpCompression
 blpCompression blp = case blpExt blp of
   BlpJpeg {} -> BlpCompressionJPEG
   BlpPaletted {} -> BlpCompressionUncompressed
 
--- | How to encode a texture.
-data BlpFormat =
-    -- | JPEG with the given quality, from 1 to 100. The texture gets alpha
-    -- when the image has an alpha channel.
-    BlpFormatJpeg !Int
-    -- | 256 colour palette, with 8-bit alpha or without alpha. Colours are
-    -- quantised with dithering.
-  | BlpFormatPaletted !Bool
-  deriving (Eq, Show)
-
--- | Options for encoding a texture.
-data BlpEncodeOptions = BlpEncodeOptions {
-  -- | Content type and its settings.
-  blpFormat :: !BlpFormat
-  -- | Number of mip levels to write, mip 0 included. Values below 1 mean 1,
-  -- and values above what the image has mean the full chain down to 1x1
-  -- (at most 16 levels).
-, blpMipLevels :: !Int
-  -- | Whether paletted textures are dithered. Dithering makes gradients
-  -- smoother and spoils icons and pixel art.
-, blpDither :: !Bool
-  -- | Shrink the image, halving both sides, until the larger side is at most
-  -- this many pixels. Warcraft III shows mip levels up to 512 pixels only.
-, blpMaxSize :: !(Maybe Int)
-} deriving (Eq, Show)
-
--- | Why an image cannot be encoded.
-data BlpEncodeError =
-    BlpEmptyImage -- ^ The image has a side of zero pixels.
-  | BlpImageTooLarge !Int !Int -- ^ Width or height is above 65535, the format's limit.
-  | BlpInvalidJpegQuality !Int -- ^ JPEG quality outside 1 to 100.
-  | BlpFileTooLarge -- ^ The file would exceed 4 GiB, the most its offsets can address.
-  | BlpInvalidMaxSize !Int -- ^ A 'blpMaxSize' below 1.
-  deriving (Eq, Show)

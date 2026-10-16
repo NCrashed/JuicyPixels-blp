@@ -4,7 +4,8 @@ JuicyPixels-blp
 [![CI](https://github.com/NCrashed/JuicyPixels-blp/actions/workflows/ci.yml/badge.svg)](https://github.com/NCrashed/JuicyPixels-blp/actions/workflows/ci.yml)
 [![Hackage](https://img.shields.io/hackage/v/JuicyPixels-blp.svg)](https://hackage.haskell.org/package/JuicyPixels-blp)
 
-Read and write BLP1, the texture format of Warcraft III, with images as
+Read and write BLP1, the texture format of Warcraft III, and read BLP2, its
+World of Warcraft variant, with images as
 [JuicyPixels](https://hackage.haskell.org/package/JuicyPixels) types. The
 package also ships `blp2any`, a command-line converter between BLP and
 common image formats.
@@ -30,7 +31,7 @@ main = do
   either print return result
 ```
 
-- `readBlp` / `decodeBlp` return the full size image.
+- `readBlp` / `decodeBlp` return the full size image of a BLP1 or BLP2 file.
 - `readBlpMipmaps` / `decodeBlpMipmaps` return the image followed by its
   mipmaps.
 - `encodeBlpWith` / `writeBlpWith` encode with `BlpEncodeOptions`:
@@ -62,6 +63,9 @@ change between minor versions.
 
 - **Decoding** all BLP1 variants: JPEG, and paletted with 0, 1, 4 or 8-bit
   alpha, including their mipmaps.
+- **Decoding BLP2** (World of Warcraft): DXT1, DXT3, DXT5, BGRA and
+  paletted content, including mipmaps. `blpInfo` tells the versions and
+  content types apart.
 - **Damaged and non-standard files** that are common in community maps and
   ports of World of Warcraft assets:
   - odd header values;
@@ -83,9 +87,9 @@ change between minor versions.
 
 ## Limitations
 
-- **BLP0 and BLP2.** Only BLP1 is supported. BLP0 keeps mipmaps in separate
-  `.b00`–`.b15` files; BLP2 is the World of Warcraft variant
-  ([#3](https://github.com/NCrashed/JuicyPixels-blp/issues/3)).
+- **BLP0, writing BLP2, and BLP2 with JPEG content.** BLP0 keeps mipmaps in
+  separate `.b00`–`.b15` files. BLP2 is read only, and its JPEG variant,
+  which no known file uses, is rejected.
 - **Lossy palette.** Uncompressed encoding quantises to 256 colours, so it is
   lossy for images with more colours. Mipmaps after the first are mapped to
   the first level's palette.
@@ -131,9 +135,10 @@ blp2any stats DIRECTORY OUTPUT_PATH
       textures without their smallest levels; Warcraft III draws missing
       levels as transparent black, so this is only safe for interface
       images.
-- **`stats`** groups the BLP files in a directory by their header values
+- **`stats`** groups the BLP1 files in a directory by their header values
   and copies one example of each group to `OUTPUT_PATH`. Files it cannot
-  read are reported and skipped. It helps when hunting for unusual files.
+  read, BLP2 files included, are reported and skipped. It helps when
+  hunting for unusual files.
 
 ```
 blp2any convert war3/ textures-png/ -f png

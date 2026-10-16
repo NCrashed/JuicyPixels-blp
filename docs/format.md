@@ -1,9 +1,11 @@
-# The BLP1 format
+# The BLP format
 
 BLP ("Blizzard Picture") is the texture format of Warcraft III (BLP1) and
-World of Warcraft (BLP2). This library reads and writes **BLP1**. This page
-describes the format as the community has documented it, and states for each
-part what the library does with it, including where it falls short.
+World of Warcraft (BLP2). This library reads and writes **BLP1** and reads
+**BLP2**. This page describes the format as the community has documented
+it, and states for each part what the library does with it, including where
+it falls short. The sections up to [BLP2](#blp2-world-of-warcraft) are about
+BLP1.
 
 Primary sources:
 
@@ -37,8 +39,9 @@ The header is 156 bytes (`0x9C`) long.
 
 What the library does with these fields:
 
-- **Magic.** Only `BLP1` is accepted. BLP0 and BLP2 are rejected (see
-  [Not supported](#not-supported)).
+- **Magic.** `BLP2` files are read as described in
+  [BLP2](#blp2-world-of-warcraft); anything else that is not `BLP1`, such
+  as BLP0, is rejected (see [Not supported](#not-supported)).
 - **content.** Values other than 0 and 1 are rejected. The spec suggests
   treating them as JPEG; the library is stricter.
 - **alphaBits.** Decides whether there is alpha and how it is packed. Values
@@ -159,6 +162,79 @@ per mip level:
   black when building the palette, so colours hidden under them take no
   entries; they are invisible in the decoded texture either way.
 
+## BLP2 (World of Warcraft)
+
+The library reads BLP2 files; it does not write them. The sections above
+apply where noted.
+
+### Header
+
+The header is 148 bytes (`0x94`) long, followed by a 256 entry palette
+(1024 bytes) whether the content uses it or not.
+
+| Offset | Type | Name | Library field | Meaning |
+|---|---|---|---|---|
+| `0x00` | `char[4]` | magic | – | `"BLP2"` |
+| `0x04` | `uint32` | type | – | `0` = JPEG, `1` = everything else |
+| `0x08` | `uint8` | encoding | `blp2Content` | `1` = paletted, `2` = DXT, `3` = BGRA |
+| `0x09` | `uint8` | alphaDepth | `blp2AlphaDepth` | Alpha bits per pixel: 0, 1, 4 or 8 |
+| `0x0A` | `uint8` | alphaType | `blp2AlphaType` | DXT format: `0` = DXT1, `1` = DXT3, `7` = DXT5; 8 on other content |
+| `0x0B` | `uint8` | hasMips | `blp2HasMips` | `0` = only mip 0 |
+| `0x0C` | `uint32` | width | `blp2Width` | Width of mip 0 in pixels |
+| `0x10` | `uint32` | height | `blp2Height` | Height of mip 0 in pixels |
+| `0x14` | `uint32[16]` | mipmapOffset | – | File offset of each mip level |
+| `0x54` | `uint32[16]` | mipmapSize | – | Size in bytes of each mip level |
+| `0x94` | `uint32[256]` | palette | – | B, G, R and padding, as in BLP1 |
+
+What the library does with these fields:
+
+- **type.** Only 1 is read. Type 0 holds JPEG content, which no known file
+  uses; it is rejected.
+- **encoding** and **alphaType.** Decide the content, below. Other values
+  are rejected.
+- **alphaDepth.** 0 makes every level opaque, whatever the content holds;
+  this is what Pillow does. For DXT1 it also decides what index 3 of a
+  three-colour block means: transparent with 1, opaque black with 0.
+- **hasMips** is ignored, and the mipmap slots are read as in
+  [Mipmaps](#mipmaps), with the same checks. Levels may start right after
+  the header; the palette is only read for paletted content, and is cut
+  short where mip 0 starts, as in BLP1.
+
+### Paletted content (`encoding = 1`)
+
+Laid out and decoded as [paletted BLP1](#paletted-content-content--1), with
+alphaDepth in place of alphaBits.
+
+### DXT content (`encoding = 2`)
+
+Each level is cut into 4×4 blocks, stored row by row; levels whose sides are
+not a multiple of 4 are padded to whole blocks, and the padding is dropped
+when decoding. A DXT1 block is 8 bytes of colour; DXT3 and DXT5 blocks put 8
+bytes of alpha first.
+
+- **Colour.** Two RGB565 endpoints and a 2-bit index per pixel. Endpoints
+  expand to 8 bits by bit replication (31 becomes 255). If the first
+  endpoint is larger, or the block is DXT3 or DXT5, indices 2 and 3 are
+  `(2·c0 + c1) / 3` and `(c0 + 2·c1) / 3`; otherwise index 2 is
+  `(c0 + c1) / 2` and index 3 is black.
+- **DXT3 alpha.** 4 bits per pixel, times 17.
+- **DXT5 alpha.** Two 8-bit endpoints and a 3-bit index per pixel: six
+  interpolated values between them if the first is larger, otherwise four,
+  plus 0 and 255.
+
+Divisions round down, as in Pillow. Graphics hardware is not consistent
+about this, so other decoders can differ by one. Pillow's BLP plugin skips
+the bit replication, so its output is up to 7 lower per channel.
+
+### BGRA content (`encoding = 3`)
+
+Four bytes per pixel: blue, green, red and alpha.
+
+### Damaged levels
+
+As in BLP1, a level 0 too short for its size fails the file, and the list of
+levels stops at the first damaged mipmap.
+
 ## Deviations found in real files
 
 The decoder accepts these, besides the ones mentioned above:
@@ -173,8 +249,7 @@ The decoder accepts these, besides the ones mentioned above:
 ## Not supported
 
 - **BLP0**, which stores each mip level in a separate `.b00` … `.b15` file.
-- **BLP2**, the World of Warcraft variant with DXT compression
-  ([#3](https://github.com/NCrashed/JuicyPixels-blp/issues/3)).
+- **Writing BLP2**, and BLP2 files with JPEG content (`type = 0`).
 - **Writing 1-bit or 4-bit alpha**, or a chosen `extra` or `hasMipmaps`
   value, through the public encoders. `Codec.Picture.Blp.Internal.Encoder`
   can write any `BlpStruct`.

@@ -55,4 +55,4 @@ main = do
   where
     ver = showVersion Paths.version
     headerDesc = ""
-    desc = "Converting BLP1 Warcraft III textures to/from PNG, JPEG, TIFF, GIF and BMP"
+    desc = "Converting BLP textures to and from PNG, JPEG, TIFF, GIF and BMP. Reads BLP1 (Warcraft III) and BLP2 (World of Warcraft), writes BLP1"

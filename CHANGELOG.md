@@ -25,6 +25,12 @@ produced. This changes the type of every decoding function.
   `BlpInfo`, `BlpVersion` and `BlpCompression` have `NFData` instances.
 - `blp2any stats` groups BLP2 files too, by content type, `alphaDepth`,
   `alphaType` and `hasMips`. Group names of BLP1 files are unchanged.
+- **Breaking:** the deprecated `encodeBlpJpeg`, `encodeBlpUncompressedWithAlpha`,
+  `encodeBlpUncompressedWithoutAlpha` and their `writeBlp*` variants are
+  removed. Use `encodeBlpWith` or `writeBlpWith` with `BlpFormatJpeg` or
+  `BlpFormatPaletted`; unlike them, these return `Left` instead of throwing.
+- The README lists what is out of scope on purpose: writing BLP2, BLP0,
+  BLP2 with JPEG content, and others.
 - Internal modules: the parser and decoder return `BlpDecodeError`, and the
   decoder `Image PixelRGBA8`.
 

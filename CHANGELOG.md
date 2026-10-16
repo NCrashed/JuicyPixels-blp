@@ -1,43 +1,43 @@
-Unreleased
-==========
+0.6.0.0 (2026-10-16)
+====================
 
-BLP2, the World of Warcraft variant, can be read. This changes `BlpInfo`
-and `BlpCompression`, so the next release is 0.6.0.0.
+BLP2, the World of Warcraft variant, can be read. `BlpInfo` and
+`BlpCompression` change for it; see the breaking change below.
 
 - `decodeBlp`, `decodeBlpMipmaps`, their `With` and `read` variants and
   `blpInfo` read BLP2 files: DXT1, DXT3, DXT5, BGRA and paletted content,
-  with mipmaps. Damaged levels are handled as in BLP1, and the size limit
-  applies. An alpha depth of 0 makes the image opaque. BLP2 files with JPEG
-  content (`type` 0) are rejected; no known file uses them. `blp2any
-  convert` reads BLP2 too.
+  with mipmaps (#3). Damaged levels are handled as in BLP1, and the size
+  limit applies. An alpha depth of 0 makes the image opaque. BLP2 files
+  with JPEG content (`type` 0) are rejected; no known file uses them.
+  `blp2any convert` reads BLP2 too.
+- Decoding was checked pixel by pixel against the BLP2 sample files of
+  Pillow and of the Pinta365/blp library. BGRA and paletted content match
+  exactly. DXT colours differ by at most 2 per channel from Pinta365/blp,
+  from rounding, and by up to 6 from Pillow, whose BLP plugin skips the
+  bit replication of RGB565 endpoints. See `docs/format.md`.
 - **Breaking:** `BlpInfo` has a new first field, `blpInfoVersion ::
   BlpVersion` (`Blp1` or `Blp2`), and `BlpCompression` new constructors
   `BlpCompressionDxt1`, `BlpCompressionDxt3`, `BlpCompressionDxt5` and
   `BlpCompressionBgra`. Code that builds `BlpInfo` positionally or matches
   `BlpCompression` exhaustively needs updating.
-- Files whose magic is neither `BLP1` nor `BLP2` are still rejected with the
-  BLP1 parser's error.
-- Internal modules: `Blp2Struct`, `Blp2Content` and `BlpFile` in
-  `Internal.Data`; `parseBlp2`, `parseBlpFile` and `readPalette` in
-  `Internal.Parser`; `decodeBlpFile`, `decodeBlp2Struct`, `blpFileInfo` and
-  `blp2StructInfo` in `Internal.Decoder`.
-- The benchmarks accept `tasty-bench` 0.5. This only matters when building
-  them; the library and `blp2any` are unchanged. 0.5.0.0 has the same
-  bound in a Hackage revision.
+- BLP1 decoding is unchanged, and files whose magic is neither `BLP1` nor
+  `BLP2` are still rejected with the BLP1 parser's error.
 - The option, result and error types of `Codec.Picture.Blp` are now defined
-  outside the internal modules, so later changes to the internal file
-  structure cannot change them. `Codec.Picture.Blp.Internal.Data` still
-  re-exports the ones it exported before; no code needs changing.
-- New internal module `Codec.Picture.Blp.Internal.Decoder` with the code
-  that turns a parsed file into images (`decodeBlpStruct` and
-  `blpStructInfo`), for tools that parse files themselves.
-- `mipChainLength` moves from `Internal.Parser` (which still re-exports it)
-  to `Internal.Data`, next to the new `mipLevelsDownTo`. The parser, the
-  encoder and `mipMapsUpTo` now share them instead of three copies of the
-  same count.
-- New internal module `Codec.Picture.Blp.Internal.Dxt`: a DXT1, DXT3 and
-  DXT5 block decoder (`decodeDxt`), the first part of BLP2 support. BLP2
-  files are not decoded yet.
+  outside the internal modules, so changes to the internal file structure
+  cannot change them. `Codec.Picture.Blp.Internal.Data` still re-exports
+  the ones it exported before.
+- The benchmarks accept `tasty-bench` 0.5. 0.5.0.0 has the same bound in a
+  Hackage revision.
+- Internal modules:
+  - New `Codec.Picture.Blp.Internal.Dxt`, a DXT1, DXT3 and DXT5 block
+    decoder (`decodeDxt`, `dxtLevelBytes`).
+  - New `Codec.Picture.Blp.Internal.Decoder`, which turns a parsed file
+    into images: `decodeBlpFile`, `decodeBlpStruct`, `decodeBlp2Struct`
+    and the matching `...Info` functions.
+  - `Internal.Data`: `Blp2Struct`, `Blp2Content`, `BlpFile`, and
+    `mipChainLength` (moved from `Internal.Parser`, which still re-exports
+    it) next to the new `mipLevelsDownTo`.
+  - `Internal.Parser`: `parseBlp2`, `parseBlpFile` and `readPalette`.
 
 0.5.0.0 (2026-10-16)
 ====================

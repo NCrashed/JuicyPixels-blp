@@ -102,7 +102,7 @@ benchmark bench
     , deepseq
     , JuicyPixels
     , JuicyPixels-blp
-    , tasty-bench           >= 0.3    && < 0.5
+    , tasty-bench           >= 0.3    && < 0.6
 
 test-suite spec
   import:              warnings

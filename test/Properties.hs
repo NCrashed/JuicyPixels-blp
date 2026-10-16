@@ -38,6 +38,10 @@ seeds = blp2Seeds ++
   , encode (BlpFormatJpeg 90) 16 (opaque 8 8)
   , encode (BlpFormatPaletted True) 16 (texture 16 16)
   , encode (BlpFormatPaletted False) 16 (texture 9 4)
+  , encodeAs Blp2 BlpFormatDxt1 16 (texture 9 4)
+  , encodeAs Blp2 BlpFormatDxt5 16 (texture 16 8)
+  , encodeAs Blp2 BlpFormatBgra 16 (texture 5 7)
+  , encodeAs Blp2 (BlpFormatPaletted True) 16 (texture 8 8)
   ]
   where
     opaque w h = ImageRGBA8 . pixelMap (\(PixelRGBA8 r g b _) -> PixelRGBA8 r g b 255) . convertRGBA8 $ texture w h
@@ -48,7 +52,10 @@ texture w h = ImageRGBA8 $ generateImage px w h
     px x y = PixelRGBA8 (fromIntegral $ x * 37) (fromIntegral $ y * 59) (fromIntegral $ x * y) (fromIntegral $ 255 - x * 13)
 
 encode :: BlpFormat -> Int -> DynamicImage -> ByteString
-encode format levels = BSL.toStrict . either (error . show) id . encodeBlpWith defaultBlpEncodeOptions { blpFormat = format, blpMipLevels = levels }
+encode = encodeAs Blp1
+
+encodeAs :: BlpVersion -> BlpFormat -> Int -> DynamicImage -> ByteString
+encodeAs version format levels = BSL.toStrict . either (error . show) id . encodeBlpWith defaultBlpEncodeOptions { blpFormat = format, blpMipLevels = levels, blpVersion = version }
 
 -- | One way of damaging a file.
 data Damage
@@ -118,12 +125,13 @@ showCase (seed, ds) = "seed of " ++ show (BS.length seed) ++ " bytes, damage " +
 -- | Level l of a w x h texture is max 1 (w >> l) by max 1 (h >> l), down to
 -- 1x1, at most 16 levels.
 levelSizes :: Property
-levelSizes = forAll ((,,) <$> choose (1, 40) <*> choose (1, 40) <*> format) $ \(w, h, f) ->
+levelSizes = forAll ((,,) <$> choose (1, 40) <*> choose (1, 40) <*> format) $ \(w, h, (v, f)) ->
   let expected = take 16 (chain w h)
-      decoded = decodeBlpMipmaps (encode f 16 (texture w h))
+      decoded = decodeBlpMipmaps (encodeAs v f 16 (texture w h))
   in either (const []) (map (\i -> (imageWidth i, imageHeight i))) decoded === expected
   where
-    format = elements [BlpFormatJpeg 90, BlpFormatPaletted True, BlpFormatPaletted False]
+    format = elements $ [(Blp1, f) | f <- [BlpFormatJpeg 90, BlpFormatPaletted True, BlpFormatPaletted False]]
+      ++ [(Blp2, f) | f <- [BlpFormatPaletted True, BlpFormatPaletted False, BlpFormatDxt1, BlpFormatDxt3, BlpFormatDxt5, BlpFormatBgra]]
     chain w h = go 0
       where
         go l = let s = (max 1 (w `shiftR` l), max 1 (h `shiftR` l))

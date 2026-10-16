@@ -29,10 +29,24 @@ produced. This changes the type of every decoding function.
   `encodeBlpUncompressedWithoutAlpha` and their `writeBlp*` variants are
   removed. Use `encodeBlpWith` or `writeBlpWith` with `BlpFormatJpeg` or
   `BlpFormatPaletted`; unlike them, these return `Left` instead of throwing.
-- The README lists what is out of scope on purpose: writing BLP2, BLP0,
-  BLP2 with JPEG content, and others.
+- The README lists what is out of scope on purpose: BLP0, BLP2 with JPEG
+  content, and others.
 - `Codec.Picture.Blp.Internal.Dxt` can encode: `encodeDxt` writes DXT1, DXT3
   and DXT5 blocks, the first part of writing BLP2.
+- **Breaking:** BLP2 can be written. `BlpEncodeOptions` has a new field,
+  `blpVersion` (`Blp1` by default), and `BlpFormat` new constructors
+  `BlpFormatDxt1`, `BlpFormatDxt3`, `BlpFormatDxt5` and `BlpFormatBgra`,
+  which exist only in BLP2; JPEG exists only in BLP1, and a palette in
+  both. Other combinations give the new `BlpUnsupportedFormat`. Files
+  written this way decode with an independent decoder (Pinta365/blp, with
+  the DXT5 alpha fix reported in Pinta365/blp#1): palette and BGRA
+  exactly, DXT within the decoders' rounding differences.
+- `blp2any convert` writes BLP2 with `-b dxt1`, `dxt3`, `dxt5` or `bgra`,
+  and paletted BLP2 with `--blp2`.
+- Internal modules: `toBlp2Struct`, `encodeBlp2` and `blp2Encoder` in
+  `Internal.Encoder`; `toBlpStruct` returns `Either BlpEncodeError`; the
+  BLP1 magic parser `blpVersion` is renamed `blp1Tag`, as the name now
+  belongs to the option.
 - Internal modules: the parser and decoder return `BlpDecodeError`, and the
   decoder `Image PixelRGBA8`.
 

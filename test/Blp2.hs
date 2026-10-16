@@ -1,15 +1,21 @@
 -- | BLP2 files, built byte by byte: every content type, alpha depths, and
 -- damaged or unsupported files.
-module Blp2(blp2Tests, blp2Seeds) where
+module Blp2(blp2Tests, blp2EncodeTests, blp2Seeds) where
 
 import Codec.Picture
 import Codec.Picture.Blp
+import Codec.Picture.Blp.Internal.Data (Blp2Content(..), Blp2Struct(..))
+import Codec.Picture.Blp.Internal.Encoder (createMipMaps, encodeBlp2, toBlp2Struct)
+import Codec.Picture.Blp.Internal.Parser (parseBlp2)
+import Control.Monad (forM_)
 import Data.ByteString (ByteString)
 import Data.Word
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Vector as V
 
 import Fixture
 
@@ -140,3 +146,69 @@ palettedFile depth = blp2 defHeader2 { h2Encoding = 1, h2AlphaDepth = depth, h2A
 level0 :: [Image PixelRGBA8] -> Image PixelRGBA8
 level0 (l : _) = l
 level0 [] = error "no levels decoded"
+
+blp2EncodeTests :: TestTree
+blp2EncodeTests = testGroup "blp2 encoding"
+  [ testCase "every format writes a BLP2 that blpInfo reads back" $
+      forM_ [ (BlpFormatPaletted True, BlpCompressionUncompressed, 8)
+            , (BlpFormatPaletted False, BlpCompressionUncompressed, 0)
+            , (BlpFormatDxt1, BlpCompressionDxt1, 1)
+            , (BlpFormatDxt3, BlpCompressionDxt3, 8)
+            , (BlpFormatDxt5, BlpCompressionDxt5, 8)
+            , (BlpFormatBgra, BlpCompressionBgra, 8) ] $ \(fmt, compression, depth) ->
+        fmap blpInfo (encode2 fmt sprite) @?= Right (Right (BlpInfo Blp2 compression 16 8 depth 5))
+  , testCase "header bytes follow World of Warcraft files" $
+      forM_ [ (BlpFormatPaletted True, 1, 8), (BlpFormatDxt1, 2, 0), (BlpFormatDxt3, 2, 1)
+            , (BlpFormatDxt5, 2, 7), (BlpFormatBgra, 3, 8) ] $ \(fmt, encoding, alphaType) -> do
+        Right file <- return (encode2 fmt sprite)
+        (BS.index file 8, BS.index file 10, BS.index file 11) @?= (encoding, alphaType, 1)
+  , testCase "a single level says it has no mipmaps" $ do
+      Right file <- return (encodeBlpWithStrict defaultBlpEncodeOptions { blpVersion = Blp2, blpFormat = BlpFormatDxt5, blpMipLevels = 1 } sprite)
+      BS.index file 11 @?= 0
+  , testCase "BGRA is lossless at every level" $ do
+      Right file <- return (encode2 BlpFormatBgra sprite)
+      levels <- decoded file
+      map imageData levels @?= map imageData (take 5 (createMipMaps (convertRGBA8 sprite)))
+  , testCase "DXT1 has 1-bit alpha only when some alpha is below 128" $ do
+      let opaque = ImageRGBA8 $ generateImage (\x y -> PixelRGBA8 (fromIntegral x) (fromIntegral y) 0 200) 8 8
+      fmap (fmap blpInfoAlphaBits . blpInfo) (encode2 BlpFormatDxt1 opaque) @?= Right (Right 0)
+      Right file <- return (encode2 BlpFormatDxt1 sprite)
+      level <- level0 <$> decoded file
+      [a | PixelRGBA8 _ _ _ a <- [pixelAt level 0 0, pixelAt level 8 4]] @?= [0, 255]
+  , testCase "formats a version does not have are errors" $ do
+      encodeBlpWith defaultBlpEncodeOptions { blpVersion = Blp2 } sprite
+        `errorIs` BlpUnsupportedFormat Blp2 (BlpFormatJpeg 90)
+      encodeBlpWith defaultBlpEncodeOptions { blpFormat = BlpFormatDxt5 } sprite
+        `errorIs` BlpUnsupportedFormat Blp1 BlpFormatDxt5
+  , testCase "the size limit and blpMaxSize apply to BLP2" $ do
+      Right file <- return (encodeBlpWithStrict defaultBlpEncodeOptions { blpVersion = Blp2, blpFormat = BlpFormatDxt1, blpMaxSize = Just 4 } sprite)
+      fmap (\i -> (blpInfoWidth i, blpInfoHeight i)) (blpInfo file) @?= Right (4, 2)
+      let wide = ImageRGBA8 $ generateImage (\_ _ -> PixelRGBA8 0 0 0 255) 65536 1
+      encodeBlpWith defaultBlpEncodeOptions { blpVersion = Blp2, blpFormat = BlpFormatBgra } wide
+        `errorIs` BlpImageTooLarge 65536 1
+  , testCase "parsing a written BLP2 gives back its structure" $
+      forM_ [BlpFormatPaletted True, BlpFormatDxt1, BlpFormatDxt5, BlpFormatBgra] $ \fmt -> do
+        Right struct <- return (toBlp2Struct defaultBlpEncodeOptions { blpVersion = Blp2, blpFormat = fmt } sprite)
+        Right parsed <- return (parseBlp2 (BSL.toStrict (encodeBlp2 struct)))
+        -- The quantiser may give fewer than 256 entries; the file pads them.
+        let content s = case blp2Content s of
+              Blp2Paletted p -> show (V.take 256 (p <> V.replicate 256 (PixelRGBA8 0 0 0 0)))
+              c -> show c
+            summary s = (blp2AlphaDepth s, blp2AlphaType s, blp2HasMips s, blp2Width s, blp2Height s, blp2MipMaps s, content s)
+        summary parsed @?= summary struct
+  ]
+
+-- | 16x8 with a transparent left half and a gradient on the right.
+sprite :: DynamicImage
+sprite = ImageRGBA8 $ generateImage (\x y -> PixelRGBA8 (fromIntegral (x * 16)) (fromIntegral (y * 32)) 90 (if x < 8 then 0 else 255)) 16 8
+
+encode2 :: BlpFormat -> DynamicImage -> Either BlpEncodeError ByteString
+encode2 fmt = encodeBlpWithStrict defaultBlpEncodeOptions { blpVersion = Blp2, blpFormat = fmt }
+
+encodeBlpWithStrict :: BlpEncodeOptions -> DynamicImage -> Either BlpEncodeError ByteString
+encodeBlpWithStrict opts = fmap BSL.toStrict . encodeBlpWith opts
+
+errorIs :: Either BlpEncodeError a -> BlpEncodeError -> Assertion
+errorIs r expected = case r of
+  Left e -> e @?= expected
+  Right _ -> assertFailure $ "expected " ++ show expected

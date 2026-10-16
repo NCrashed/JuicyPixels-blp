@@ -1,11 +1,10 @@
 # The BLP format
 
 BLP ("Blizzard Picture") is the texture format of Warcraft III (BLP1) and
-World of Warcraft (BLP2). This library reads and writes **BLP1** and reads
-**BLP2**. This page describes the format as the community has documented
-it, and states for each part what the library does with it, including where
-it falls short. The sections up to [BLP2](#blp2-world-of-warcraft) are about
-BLP1.
+World of Warcraft (BLP2). This library reads and writes both. This page
+describes the format as the community has documented it, and states for
+each part what the library does with it, including where it falls short.
+The sections up to [BLP2](#blp2-world-of-warcraft) are about BLP1.
 
 Primary sources:
 
@@ -164,7 +163,7 @@ per mip level:
 
 ## BLP2 (World of Warcraft)
 
-The library reads BLP2 files; it does not write them. The sections above
+The library reads and writes BLP2 files. The sections above
 apply where noted.
 
 ### Header
@@ -230,6 +229,31 @@ the bit replication, so its output is up to 7 lower per channel.
 
 Four bytes per pixel: blue, green, red and alpha.
 
+### Writing
+
+`encodeBlpWith` with `blpVersion = Blp2` writes type 1 files. The header
+values follow files from World of Warcraft:
+
+| `blpFormat` | encoding | alphaDepth | alphaType |
+|---|---|---|---|
+| `BlpFormatPaletted True` / `False` | 1 | 8 / 0 | 8 |
+| `BlpFormatDxt1` | 2 | 1 if some alpha is below 128, else 0 | 0 |
+| `BlpFormatDxt3` | 2 | 8 | 1 |
+| `BlpFormatDxt5` | 2 | 8 | 7 |
+| `BlpFormatBgra` | 3 | 8 | 8 |
+
+hasMips is 1, or 0 for a single level. The palette is written in full for
+paletted content and as zeros otherwise, and the levels follow it. Mipmaps
+are made as for BLP1, by averaging 2×2 blocks weighted by alpha.
+
+The DXT encoder fits each block's colours along their principal axis,
+refines the two endpoints by least squares while that lowers the error, and
+compares the result with endpoints from a single-colour table, which decodes
+flat colours exactly where rounding to RGB565 would not. Errors are measured
+on what the decoder above gives back. DXT1 with alpha makes blocks with
+pixels below alpha 128 three-colour, those pixels transparent. DXT3 rounds
+alpha to the nearest of its 16 levels, and DXT5 tries both alpha modes.
+
 ### Damaged levels
 
 As in BLP1, a level 0 too short for its size fails the file, and the list of
@@ -249,7 +273,7 @@ The decoder accepts these, besides the ones mentioned above:
 ## Not supported
 
 - **BLP0**, which stores each mip level in a separate `.b00` … `.b15` file.
-- **Writing BLP2**, and BLP2 files with JPEG content (`type = 0`).
+- **BLP2 files with JPEG content** (`type = 0`).
 - **Writing 1-bit or 4-bit alpha**, or a chosen `extra` or `hasMipmaps`
   value, through the public encoders. `Codec.Picture.Blp.Internal.Encoder`
   can write any `BlpStruct`.

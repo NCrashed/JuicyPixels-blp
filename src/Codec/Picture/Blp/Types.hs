@@ -98,7 +98,8 @@ data BlpCompression =
   | BlpCompressionBgra -- ^ 32-bit BGRA pixels (BLP2 only)
   deriving (Eq, Ord, Enum, Bounded, Show, Generic)
 
--- | How to encode a texture.
+-- | How to encode a texture. JPEG is BLP1 only; DXT and BGRA are BLP2 only;
+-- a palette works in both, see 'blpVersion'.
 data BlpFormat =
     -- | JPEG with the given quality, from 1 to 100. The texture gets alpha
     -- when the image has an alpha channel.
@@ -106,7 +107,17 @@ data BlpFormat =
     -- | 256 colour palette, with 8-bit alpha or without alpha. Colours are
     -- quantised with dithering.
   | BlpFormatPaletted !Bool
-  deriving (Eq, Show)
+    -- | DXT1 blocks, 4 bits per pixel. The texture gets 1-bit alpha when
+    -- some pixel's alpha is below 128; those pixels become transparent.
+  | BlpFormatDxt1
+    -- | DXT3 blocks: DXT1 colour plus 4-bit alpha per pixel.
+  | BlpFormatDxt3
+    -- | DXT5 blocks: DXT1 colour plus interpolated 8-bit alpha, smoother
+    -- than DXT3 for gradual alpha.
+  | BlpFormatDxt5
+    -- | Uncompressed 32-bit pixels, lossless and 4 bytes per pixel.
+  | BlpFormatBgra
+  deriving (Eq, Show, Generic)
 
 -- | Options for encoding a texture.
 data BlpEncodeOptions = BlpEncodeOptions {
@@ -122,16 +133,20 @@ data BlpEncodeOptions = BlpEncodeOptions {
   -- | Shrink the image, halving both sides, until the larger side is at most
   -- this many pixels. Warcraft III shows mip levels up to 512 pixels only.
 , blpMaxSize :: !(Maybe Int)
+  -- | File version to write: 'Blp1' for Warcraft III, 'Blp2' for World of
+  -- Warcraft. The format must exist in that version, see 'BlpFormat'.
+, blpVersion :: !BlpVersion
 } deriving (Eq, Show)
 
--- | JPEG at quality 90 with the full mip chain, dithered palettes, and no
--- size limit.
+-- | BLP1, JPEG at quality 90 with the full mip chain, dithered palettes, and
+-- no size limit.
 defaultBlpEncodeOptions :: BlpEncodeOptions
 defaultBlpEncodeOptions = BlpEncodeOptions {
     blpFormat = BlpFormatJpeg 90
   , blpMipLevels = 16
   , blpDither = True
   , blpMaxSize = Nothing
+  , blpVersion = Blp1
   }
 
 -- | Why an image cannot be encoded.
@@ -141,6 +156,7 @@ data BlpEncodeError =
   | BlpInvalidJpegQuality !Int -- ^ JPEG quality outside 1 to 100.
   | BlpFileTooLarge -- ^ The file would exceed 4 GiB, the most its offsets can address.
   | BlpInvalidMaxSize !Int -- ^ A 'blpMaxSize' below 1.
+  | BlpUnsupportedFormat !BlpVersion !BlpFormat -- ^ The format does not exist in this version, such as JPEG in BLP2.
   deriving (Eq, Show, Generic)
 
 instance Exception BlpEncodeError
@@ -150,3 +166,4 @@ instance NFData BlpEncodeError
 instance NFData BlpInfo
 instance NFData BlpVersion
 instance NFData BlpCompression
+instance NFData BlpFormat

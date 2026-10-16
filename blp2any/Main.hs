@@ -43,11 +43,12 @@ main = do
       <*> option qualityR (long "quality" <> short 'q' <> value 90 <> help "Quality level for formats with lossy compression, 1 to 100 (default 90)")
       <*> fmap not (switch (long "flatten" <> long "notPreserveStructure" <> short 'p' <> help "Write every converted file straight into OUTPUT_PATH instead of recreating subfolders (files with the same name overwrite each other)"))
       <*> switch (long "shallow" <> short 's' <> help "Only convert files directly in INPUT_PATH, not in its subfolders")
-      <*> option blpKindR (long "blpFormat" <> short 'b' <> value BlpJpeg <> help "Specifies what BLP internal format to use when converting to BLP. Values: jpg uncompressedWithAlpha uncompressedWithoutAlpha")
+      <*> option blpKindR (long "blpFormat" <> short 'b' <> value BlpJpeg <> help "Specifies what BLP internal format to use when converting to BLP. Values: jpg uncompressedWithAlpha uncompressedWithoutAlpha (BLP1), dxt1 dxt3 dxt5 bgra (BLP2)")
       <*> option auto (long "min-mipmap-size" <> value 1 <> help "Smallest mipmap side to keep when writing BLP (default 1)")
       <*> optional (option auto (long "timeout" <> metavar "SECONDS" <> help "Give up on a file after this many seconds; some corrupt JPEG data makes decoding hang"))
       <*> fmap not (switch (long "no-dither" <> help "Do not dither paletted BLP textures; better for icons and pixel art"))
       <*> optional (option auto (long "max-size" <> metavar "PIXELS" <> help "When writing BLP, halve the image until its larger side is at most this; Warcraft III shows mip levels up to 512 only"))
+      <*> switch (long "blp2" <> help "Write BLP2 (World of Warcraft) even for a paletted format; DXT and BGRA always write BLP2")
     addCommand "stats" "Groups the BLPs in a folder by header values and saves one example of each group" (uncurry collectStatistics) $ (,)
       <$> strArgument (metavar "DIRECTORY" <> help "Input folder that stores blps (subfolders are processed)")
       <*> strArgument (metavar "OUTPUT_PATH" <> help "Here blp samples would be stored")
@@ -55,4 +56,4 @@ main = do
   where
     ver = showVersion Paths.version
     headerDesc = ""
-    desc = "Converting BLP textures to and from PNG, JPEG, TIFF, GIF and BMP. Reads BLP1 (Warcraft III) and BLP2 (World of Warcraft), writes BLP1"
+    desc = "Converting BLP textures to and from PNG, JPEG, TIFF, GIF and BMP. Reads BLP1 (Warcraft III) and BLP2 (World of Warcraft), writes both"

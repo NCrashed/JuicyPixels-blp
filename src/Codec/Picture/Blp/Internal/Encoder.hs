@@ -8,6 +8,9 @@ module Codec.Picture.Blp.Internal.Encoder(
     encodeBlp
   , blpEncoder
   , toBlpStruct
+  , toBlp2Struct
+  , encodeBlp2
+  , blp2Encoder
   , shrinkTo
   , createMipMaps
   , createMipMapsIndexed
@@ -33,6 +36,8 @@ import qualified Data.Vector.Storable.Mutable as MVS
 
 import Codec.Picture.Blp.Internal.Convert
 import Codec.Picture.Blp.Internal.Data
+import Codec.Picture.Blp.Internal.Dxt (DxtFormat(..), encodeDxt)
+import Codec.Picture.Blp.Types
 
 -- | Serialise a BLP structure. The content type follows from 'blpExt'; at
 -- most 16 mip levels are written, and unused slots are zero.
@@ -84,30 +89,108 @@ hasAlpha img = case img of
 -- | Build the BLP structure for an image. The number of mip levels is clamped
 -- to between 1 and the image's full chain, at most 16. The image's size is
 -- not checked, and 'blpMaxSize' is applied by the caller (see 'shrinkTo').
-toBlpStruct :: BlpEncodeOptions -> DynamicImage -> BlpStruct
-toBlpStruct BlpEncodeOptions{..} img = BlpStruct {
-    blpAlphaBits = if alpha then 8 else 0
-  , blpWidth = fromIntegral width
-  , blpHeight = fromIntegral height
-  -- Readers that follow the old description of the format pick alpha by
-  -- this field (3 or 4 with alpha, 5 without), so keep it consistent.
-  , blpExtra = if alpha then 3 else 5
-  -- WorldEdit writes 5; a single level says it has no mipmaps.
-  , blpHasMipmaps = if numLevels > 1 then 5 else 0
-  , blpExt = case blpFormat of
-      BlpFormatJpeg quality -> toBlpJpg (fromIntegral quality) numLevels alpha rgba
-      BlpFormatPaletted _ -> toBlpPaletted blpDither alpha numLevels (convertRGB8 img) rgba
-  }
+toBlpStruct :: BlpEncodeOptions -> DynamicImage -> Either BlpEncodeError BlpStruct
+toBlpStruct BlpEncodeOptions{..} img = do
+  ext <- case blpFormat of
+    BlpFormatJpeg quality -> Right $ toBlpJpg (fromIntegral quality) numLevels alpha rgba
+    BlpFormatPaletted _ -> Right $ toBlpPaletted blpDither alpha numLevels (convertRGB8 img) rgba
+    other -> Left $ BlpUnsupportedFormat Blp1 other
+  return BlpStruct {
+      blpAlphaBits = if alpha then 8 else 0
+    , blpWidth = fromIntegral width
+    , blpHeight = fromIntegral height
+    -- Readers that follow the old description of the format pick alpha by
+    -- this field (3 or 4 with alpha, 5 without), so keep it consistent.
+    , blpExtra = if alpha then 3 else 5
+    -- WorldEdit writes 5; a single level says it has no mipmaps.
+    , blpHasMipmaps = if numLevels > 1 then 5 else 0
+    , blpExt = ext
+    }
   where
     -- JPEG keeps alpha only if some pixel is not fully opaque.
     alpha = case blpFormat of
       BlpFormatJpeg _ -> hasAlpha img && anyTransparent rgba
       BlpFormatPaletted withAlpha -> withAlpha
+      _ -> False
     -- Only built when needed: paletted textures without alpha go from RGB.
     rgba = convertRGBA8 img
     width = dynamicMap imageWidth img
     height = dynamicMap imageHeight img
     numLevels = max 1 $ min (mipChainLength width height) blpMipLevels
+
+-- | Build the BLP2 structure for an image, as 'toBlpStruct' does for BLP1.
+-- The header values follow files from World of Warcraft: alpha depth 0 or
+-- 1 for DXT1, 8 for DXT3, DXT5 and BGRA, 8 or 0 for a palette; alpha type
+-- 0, 1 and 7 for the DXT formats and 8 otherwise.
+toBlp2Struct :: BlpEncodeOptions -> DynamicImage -> Either BlpEncodeError Blp2Struct
+toBlp2Struct BlpEncodeOptions{..} img = case blpFormat of
+  BlpFormatPaletted withAlpha ->
+    let (palette, mips) = quantiseLevels blpDither withAlpha numLevels (convertRGB8 img) rgba
+    in Right $ struct (if withAlpha then 8 else 0) 8 (Blp2Paletted palette) mips
+  BlpFormatDxt1 ->
+    let punch = hasAlpha img && anyBelowHalf rgba
+    in Right $ struct (if punch then 1 else 0) 0 (Blp2Dxt (Dxt1 punch)) (encodeDxt (Dxt1 punch) <$> levels)
+  BlpFormatDxt3 -> Right $ struct 8 1 (Blp2Dxt Dxt3) (encodeDxt Dxt3 <$> levels)
+  BlpFormatDxt5 -> Right $ struct 8 7 (Blp2Dxt Dxt5) (encodeDxt Dxt5 <$> levels)
+  BlpFormatBgra -> Right $ struct 8 8 Blp2Bgra (bgraBytes <$> levels)
+  other -> Left $ BlpUnsupportedFormat Blp2 other
+  where
+    rgba = convertRGBA8 img
+    width = dynamicMap imageWidth img
+    height = dynamicMap imageHeight img
+    numLevels = max 1 $ min (mipChainLength width height) blpMipLevels
+    levels = take numLevels (createMipMaps rgba)
+    struct depth alphaType content mips = Blp2Struct {
+        blp2AlphaDepth = depth
+      , blp2AlphaType = alphaType
+      , blp2HasMips = if numLevels > 1 then 1 else 0
+      , blp2Width = fromIntegral width
+      , blp2Height = fromIntegral height
+      , blp2Content = content
+      , blp2MipMaps = mips
+      }
+
+-- | Whether any pixel's alpha is below 128, so DXT1 needs 1-bit alpha.
+anyBelowHalf :: Image PixelRGBA8 -> Bool
+anyBelowHalf img = VS.any id $ VS.generate (imageWidth img * imageHeight img) (\i -> VS.unsafeIndex (imageData img) (4 * i + 3) < 128)
+
+-- | Pixels as B, G, R and A.
+bgraBytes :: Image PixelRGBA8 -> BS.ByteString
+bgraBytes img = BS.pack . concat $ [[b, g, r, a] | PixelRGBA8 r g b a <- pixels]
+  where pixels = [pixelAt img x y | y <- [0 .. imageHeight img - 1], x <- [0 .. imageWidth img - 1]]
+
+-- | Serialise a BLP2 structure. At most 16 mip levels are written, unused
+-- slots are zero, and the palette is zeros unless the content is paletted.
+encodeBlp2 :: Blp2Struct -> ByteString
+encodeBlp2 = runPut . blp2Encoder
+
+-- | Raw encoder for BLP2.
+blp2Encoder :: Blp2Struct -> Put
+blp2Encoder Blp2Struct{..} = do
+  putByteString "BLP2"
+  putWord32le 1
+  putWord8 $ case blp2Content of
+    Blp2Paletted _ -> 1
+    Blp2Dxt _ -> 2
+    Blp2Bgra -> 3
+  putWord8 blp2AlphaDepth
+  putWord8 blp2AlphaType
+  putWord8 blp2HasMips
+  putWord32le blp2Width
+  putWord32le blp2Height
+  traverse_ putWord32le . slots $ take (length levels) (scanl (+) contentStart levelSizes)
+  traverse_ putWord32le $ slots levelSizes
+  traverse_ putRgba8 . V.take 256 $ palette <> V.replicate 256 (PixelRGBA8 0 0 0 0)
+  traverse_ putByteString levels
+  where
+    contentStart = 148 + 4 * 256
+    levels = take 16 blp2MipMaps
+    levelSizes = BS.length <$> levels
+    palette = case blp2Content of
+      Blp2Paletted p -> p
+      _ -> V.empty
+    slots xs = take 16 $ (fromIntegral <$> xs) ++ repeat 0
+    putRgba8 (PixelRGBA8 r g b a) = putWord8 r >> putWord8 g >> putWord8 b >> putWord8 a
 
 -- | Whether any pixel is less than fully opaque.
 anyTransparent :: Image PixelRGBA8 -> Bool
@@ -245,12 +328,17 @@ convertIndexed img = let
 -- | Quantise a picture to a 256 colour palette and create mipmaps, with an
 -- 8-bit alpha list after each index list when asked to keep alpha.
 toBlpPaletted :: Bool -> Bool -> Int -> Image PixelRGB8 -> Image PixelRGBA8 -> BlpExt
-toBlpPaletted dither keepAlpha numLevels rgb rgba = BlpPaletted {
-    blpPalette = convertPalette palette
-  , blpPalettedMipMaps = if keepAlpha
+toBlpPaletted dither keepAlpha numLevels rgb rgba =
+  uncurry BlpPaletted (quantiseLevels dither keepAlpha numLevels rgb rgba)
+
+-- | The palette and the raw mip levels of 'toBlpPaletted', shared with BLP2.
+quantiseLevels :: Bool -> Bool -> Int -> Image PixelRGB8 -> Image PixelRGBA8 -> (V.Vector PixelRGBA8, [BS.ByteString])
+quantiseLevels dither keepAlpha numLevels rgb rgba =
+  ( convertPalette palette
+  , if keepAlpha
       then zipWith (<>) (convertIndexed <$> mipmaps) (convertIndexed <$> alphaMaps)
       else convertIndexed <$> mipmaps
-  }
+  )
   where
     img'    :: Image Pixel8
     palette :: Palette

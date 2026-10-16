@@ -135,10 +135,11 @@ blp2any stats DIRECTORY OUTPUT_PATH
       textures without their smallest levels; Warcraft III draws missing
       levels as transparent black, so this is only safe for interface
       images.
-- **`stats`** groups the BLP1 files in a directory by their header values
-  and copies one example of each group to `OUTPUT_PATH`. Files it cannot
-  read, BLP2 files included, are reported and skipped. It helps when
-  hunting for unusual files.
+- **`stats`** groups the BLP files in a directory by their header values
+  and copies one example of each group to `OUTPUT_PATH`, named after the
+  group: content type, `alphaBits`, `extra` and `hasMipmaps` for BLP1, and
+  `alphaDepth`, `alphaType` and `hasMips` for BLP2. Files it cannot read are
+  reported and skipped. It helps when hunting for unusual files.
 
 ```
 blp2any convert war3/ textures-png/ -f png

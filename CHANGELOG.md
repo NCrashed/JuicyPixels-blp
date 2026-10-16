@@ -1,3 +1,9 @@
+Unreleased
+==========
+
+- `blp2any stats` groups BLP2 files too, by content type, `alphaDepth`,
+  `alphaType` and `hasMips`. Group names of BLP1 files are unchanged.
+
 0.6.0.0 (2026-10-16)
 ====================
 

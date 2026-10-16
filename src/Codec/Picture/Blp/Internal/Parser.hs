@@ -32,6 +32,7 @@ import qualified Data.ByteString as BS
 
 import Codec.Picture.Blp.Internal.Data
 import Codec.Picture.Blp.Internal.Dxt (DxtFormat(..))
+import Codec.Picture.Blp.Types (BlpDecodeError(..))
 
 -- | Size of the fixed BLP1 header in bytes.
 headerSize :: Int
@@ -45,32 +46,51 @@ maxSide = 65535
 --
 -- Width and height must be between 1 and 'maxSide'. Mip levels are taken
 -- slot by slot, see 'mipLevels'.
-parseBlp :: ByteString -> Either String BlpStruct
+parseBlp :: ByteString -> Either BlpDecodeError BlpStruct
 parseBlp input = do
-  (mkStruct, compression, width, height, slots) <- parseOnly headerParser input
-  let w = fromIntegral width
-      h = fromIntegral height
-  if w < 1 || h < 1 || w > maxSide || h > maxSide
-    then Left $ "Invalid image size " ++ show width ++ "x" ++ show height
-    else Right ()
-  let levelsFrom start = mipLevels (BS.length input) start (mipChainLength w h) slots
-  fmap mkStruct $ case compression of
-    BlpCompressionJPEG -> do
-      jpegHeaderSize <- parseOnly (AT.take headerSize *> dword <?> "jpeg header size") input
+  checkMagic "BLP1" input
+  (mkStruct, content, width, height, slots) <- truncated $ parseOnly headerParser input
+  checkSize width height
+  let levelsFrom start = mipLevels (BS.length input) start (mipChainLength (fromIntegral width) (fromIntegral height)) slots
+  fmap mkStruct $ case content of
+    0 -> do
+      jpegHeaderSize <- truncated $ parseOnly (AT.take headerSize *> dword) input
       let headerEnd = headerSize + 4 + fromIntegral jpegHeaderSize
       if headerEnd > BS.length input
-        then Left "jpeg header: not enough input"
+        then Left BlpTruncatedHeader
         else Right BlpJpeg {
             blpJpegHeader = slice input (headerSize + 4, fromIntegral jpegHeaderSize)
           , blpJpegData = slice input <$> levelsFrom headerEnd
           }
-    _ -> do
-      -- compressionParser gives JPEG or paletted only.
+    1 -> do
       let levels = levelsFrom headerSize
       Right BlpPaletted {
           blpPalette = readPalette input headerSize levels
         , blpPalettedMipMaps = slice input <$> levels
         }
+    c -> Left . BlpUnsupported $ "BLP1 content type " ++ show c
+
+-- | The file must start with the given magic. A non-empty file shorter than
+-- that is cut short if it is the start of the magic.
+checkMagic :: ByteString -> ByteString -> Either BlpDecodeError ()
+checkMagic magic input
+  | BS.take 4 input == magic = Right ()
+  | not (BS.null input) && BS.length input < 4 && input `BS.isPrefixOf` magic = Left BlpTruncatedHeader
+  | otherwise = Left BlpNotBlp
+
+-- | Width and height must be between 1 and 'maxSide'.
+checkSize :: Word32 -> Word32 -> Either BlpDecodeError ()
+checkSize width height
+  | w < 1 || h < 1 || w > maxSide || h > maxSide = Left $ BlpInvalidSize w h
+  | otherwise = Right ()
+  where
+    w = fromIntegral width
+    h = fromIntegral height
+
+-- | Once the magic is checked, the header parsers fail only when the input
+-- ends.
+truncated :: Either String a -> Either BlpDecodeError a
+truncated = either (const (Left BlpTruncatedHeader)) Right
 
 -- | The 256 entry palette that starts at the given offset. Some tools write
 -- only the palette entries they use, so the palette ends where mip 0
@@ -94,7 +114,7 @@ slice input (offset, size) = BS.take size (BS.drop offset input)
 
 -- | Parse a BLP1 or BLP2 file, told apart by their magic. Anything that is
 -- not BLP2 is parsed, and rejected, as BLP1.
-parseBlpFile :: ByteString -> Either String BlpFile
+parseBlpFile :: ByteString -> Either BlpDecodeError BlpFile
 parseBlpFile input
   | BS.take 4 input == "BLP2" = BlpFile2 <$> parseBlp2 input
   | otherwise = BlpFile1 <$> parseBlp input
@@ -111,29 +131,26 @@ blp2HeaderSize = 148
 -- levels are taken slot by slot, as in BLP1 (see 'mipLevels'). Levels may
 -- start right after the header: the palette that follows it is only read
 -- for paletted content, and cut short where mip 0 starts.
-parseBlp2 :: ByteString -> Either String Blp2Struct
+parseBlp2 :: ByteString -> Either BlpDecodeError Blp2Struct
 parseBlp2 input = do
+  checkMagic "BLP2" input
   (blpType, encoding, blp2AlphaDepth, blp2AlphaType, blp2HasMips, blp2Width, blp2Height, slots) <-
-    parseOnly blp2HeaderParser input
-  let w = fromIntegral blp2Width
-      h = fromIntegral blp2Height
+    truncated $ parseOnly blp2HeaderParser input
   case blpType of
     1 -> Right ()
-    0 -> Left "BLP2 files with JPEG content are not supported"
-    t -> Left $ "Unknown BLP2 type " ++ show t
-  if w < 1 || h < 1 || w > maxSide || h > maxSide
-    then Left $ "Invalid image size " ++ show blp2Width ++ "x" ++ show blp2Height
-    else Right ()
-  let levels = mipLevels (BS.length input) blp2HeaderSize (mipChainLength w h) slots
+    0 -> Left $ BlpUnsupported "BLP2 with JPEG content (type 0)"
+    t -> Left . BlpUnsupported $ "BLP2 type " ++ show t
+  checkSize blp2Width blp2Height
+  let levels = mipLevels (BS.length input) blp2HeaderSize (mipChainLength (fromIntegral blp2Width) (fromIntegral blp2Height)) slots
   blp2Content <- case encoding of
     1 -> Right . Blp2Paletted $ readPalette input blp2HeaderSize levels
     2 -> case blp2AlphaType of
       0 -> Right . Blp2Dxt $ Dxt1 (blp2AlphaDepth /= 0)
       1 -> Right $ Blp2Dxt Dxt3
       7 -> Right $ Blp2Dxt Dxt5
-      t -> Left $ "Unknown BLP2 DXT format (alpha type " ++ show t ++ ")"
+      t -> Left . BlpUnsupported $ "BLP2 DXT alpha type " ++ show t
     3 -> Right Blp2Bgra
-    e -> Left $ "Unknown BLP2 encoding " ++ show e
+    e -> Left . BlpUnsupported $ "BLP2 encoding " ++ show e
   return Blp2Struct { blp2MipMaps = slice input <$> levels, .. }
 
 -- | The BLP2 header: type, encoding, alpha depth, alpha type, has mips,
@@ -154,10 +171,10 @@ blp2HeaderParser = do
 
 -- | The fixed header: a function completing the struct with its content,
 -- plus the fields needed to read the content.
-headerParser :: Parser (BlpExt -> BlpStruct, BlpCompression, Word32, Word32, [(Word32, Word32)])
+headerParser :: Parser (BlpExt -> BlpStruct, Word32, Word32, Word32, [(Word32, Word32)])
 headerParser = do
   _ <- blpVersion
-  compression <- compressionParser
+  content <- dword <?> "content"
   blpAlphaBits <- dword <?> "alpha bits"
   blpWidth <- dword <?> "width"
   blpHeight <- dword <?> "height"
@@ -166,7 +183,7 @@ headerParser = do
   offsets <- count 16 dword <?> "mipmaps offsets"
   sizes <- count 16 dword <?> "mipmaps sizes"
   let mkStruct blpExt = BlpStruct {..}
-  return (mkStruct, compression, blpWidth, blpHeight, offsets `zip` sizes)
+  return (mkStruct, content, blpWidth, blpHeight, offsets `zip` sizes)
 
 -- | The @BLP1@ magic. BLP0 and BLP2 files fail here.
 blpVersion :: Parser ByteString

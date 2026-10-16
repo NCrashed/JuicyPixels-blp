@@ -130,7 +130,7 @@ guessFormat = readConvertFormat . drop 1 . takeExtension
 -- | Try to load input file with desired format
 readInputFile :: FilePath -> ConvertFormat -> IO (Either String DynamicImage)
 readInputFile inputFile format = case format of
-  Blp -> either (Left . ("parse error: " <>)) Right . decodeBlp <$> BS.readFile inputFile
+  Blp -> either (Left . ("parse error: " <>) . displayBlpDecodeError) (Right . ImageRGBA8) . decodeBlp <$> BS.readFile inputFile
   Png -> loadJuicy readPng
   Jpeg -> loadJuicy readJpeg
   Tiff -> loadJuicy readTiff

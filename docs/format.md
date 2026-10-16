@@ -122,8 +122,8 @@ uint8  jpegHeader[jpegHeaderSize]
   (8192×8192 by default) before allocating anything. `blpInfo` reads the
   size without decoding.
 - **JuicyPixels.** The JPEG streams themselves are decoded by JuicyPixels.
-  Errors it raises are turned into `Left`, but some corrupt streams make it
-  loop forever
+  Errors it raises on mip 0 become a `BlpCorruptImage`, and on a later level
+  end the list of levels, but some corrupt streams make it loop forever
   ([Juicy.Pixels#230](https://github.com/haskell-github-trust/Juicy.Pixels/issues/230)),
   so decoding untrusted files needs a timeout.
 - **Header size.** Warcraft III crashes on a `jpegHeaderSize` above 624.

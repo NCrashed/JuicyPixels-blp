@@ -5,7 +5,6 @@ module Blp2(blp2Tests, blp2Seeds) where
 import Codec.Picture
 import Codec.Picture.Blp
 import Data.ByteString (ByteString)
-import Data.List (isInfixOf)
 import Data.Word
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -61,19 +60,19 @@ blp2Tests = testGroup "blp2"
   , testCase "a damaged mipmap ends the list, a damaged level 0 fails the file" $ do
       levels <- decoded $ blp2 dxt1Header blankPalette [dxt1Mip0, BS.take 4 (colourBlock 0xFFFF 0 []), dxt1Block 0x07E0, dxt1Block 0x001F]
       map size levels @?= [(8, 8)]
-      assertLeft "Mipmap 0" . decodeBlp $ blp2 dxt1Header blankPalette [BS.take 31 dxt1Mip0]
-      assertLeft "BGRA" . decodeBlp $ blp2 defHeader2 { h2Encoding = 3, h2Width = 2, h2Height = 1 } blankPalette [BS.pack [1 .. 7]]
+      assertCorrupt "DXT data" . decodeBlp $ blp2 dxt1Header blankPalette [BS.take 31 dxt1Mip0]
+      assertCorrupt "BGRA" . decodeBlp $ blp2 defHeader2 { h2Encoding = 3, h2Width = 2, h2Height = 1 } blankPalette [BS.pack [1 .. 7]]
   , testCase "unsupported and malformed headers are errors" $ do
-      assertLeft "JPEG" . decodeBlp $ setDword 4 0 dxt1File
-      assertLeft "type" . decodeBlp $ setDword 4 5 dxt1File
-      assertLeft "encoding" . decodeBlp $ setByte 8 4 dxt1File
-      assertLeft "alpha type" . decodeBlp $ setByte 10 3 dxt1File
-      assertLeft "Invalid image size" . decodeBlp $ setDword 12 0 dxt1File
-      assertLeft "No mipmap data" . decodeBlp $ blp2 dxt1Header blankPalette []
-      assertLeft "not enough input" . decodeBlp $ BS.take 100 dxt1File
-      assertLeft "JPEG" . blpInfo $ setDword 4 0 dxt1File
+      assertError (BlpUnsupported "BLP2 with JPEG content (type 0)") . decodeBlp $ setDword 4 0 dxt1File
+      assertError (BlpUnsupported "BLP2 type 5") . decodeBlp $ setDword 4 5 dxt1File
+      assertError (BlpUnsupported "BLP2 encoding 4") . decodeBlp $ setByte 8 4 dxt1File
+      assertError (BlpUnsupported "BLP2 DXT alpha type 3") . decodeBlp $ setByte 10 3 dxt1File
+      assertError (BlpInvalidSize 0 8) . decodeBlp $ setDword 12 0 dxt1File
+      assertError BlpNoImageData . decodeBlp $ blp2 dxt1Header blankPalette []
+      assertError BlpTruncatedHeader . decodeBlp $ BS.take 100 dxt1File
+      assertError (BlpUnsupported "BLP2 with JPEG content (type 0)") . blpInfo $ setDword 4 0 dxt1File
   , testCase "the size limit applies to BLP2" $
-      assertLeft "limit" $ decodeBlpWith (BlpDecodeOptions 63) dxt1File
+      assertError (BlpTooLarge 8 8 63) $ decodeBlpWith (BlpDecodeOptions 63) dxt1File
   ]
 
 -- | Valid BLP2 files of every content type, for the fuzz properties.
@@ -82,16 +81,12 @@ blp2Seeds = [dxt1File, dxt3File, dxt5File, bgraFile 8, palettedFile 8]
 
 decoded :: ByteString -> IO [Image PixelRGBA8]
 decoded file = case decodeBlpMipmaps file of
-  Left e -> assertFailure e
-  Right levels -> return (map convertRGBA8 levels)
+  Left e -> assertFailure (show e)
+  Right levels -> return levels
 
 size :: Image a -> (Int, Int)
 size img = (imageWidth img, imageHeight img)
 
-assertLeft :: String -> Either String a -> Assertion
-assertLeft needle r = case r of
-  Left e -> assertBool ("error " ++ show e ++ " should mention " ++ show needle) (needle `isInfixOf` e)
-  Right _ -> assertFailure "expected a decoding error"
 
 setByte :: Int -> Word8 -> ByteString -> ByteString
 setByte o v bs = BS.take o bs <> BS.singleton v <> BS.drop (o + 1) bs

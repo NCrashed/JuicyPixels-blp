@@ -64,7 +64,7 @@ decodeGroup name mkFile sizes = bgroup name
       ]
   | n <- sizes ]
   where
-    pixels img = imageData (convertRGBA8 img)
+    pixels = imageData
 
 -- | Encode an image of each size with the given format and level count.
 encodeGroup :: String -> BlpFormat -> Int -> (Int -> DynamicImage) -> [Int] -> Benchmark

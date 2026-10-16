@@ -1,8 +1,32 @@
 Unreleased
 ==========
 
+Decoding reports why it fails and returns the image type it always
+produced. This changes the type of every decoding function.
+
+- **Breaking:** `decodeBlp`, `decodeBlpWith`, `readBlp` and the `Mipmaps`
+  variants return `Image PixelRGBA8` instead of `DynamicImage`; the image
+  was always `ImageRGBA8`. Drop the `convertRGBA8` call, or wrap the result
+  in `ImageRGBA8` where a `DynamicImage` is needed.
+- **Breaking:** they and `blpInfo` report errors as `BlpDecodeError`
+  instead of `String`: `BlpNotBlp`, `BlpTruncatedHeader`, `BlpUnsupported`,
+  `BlpInvalidSize`, `BlpTooLarge`, `BlpNoImageData` and `BlpCorruptImage`.
+  `displayBlpDecodeError` gives a readable message. Callers can tell a
+  broken file from one that is too large or of an unsupported kind without
+  parsing text.
+- A paletted file without any usable mip level is now `BlpNoImageData` for
+  `decodeBlpMipmaps` too; it used to give an empty list. JPEG files already
+  failed this way. Apart from that, decoding is unchanged: an equivalence
+  run against 0.6.0.0 over 4735 cases gives the same pixels, levels,
+  `blpInfo` results and failures.
+- JPEG errors from JuicyPixels name the level, for example
+  `JPEG mipmap 0: not enough bytes`.
+- `BlpDecodeError` and `BlpEncodeError` are `Exception`s, and they,
+  `BlpInfo`, `BlpVersion` and `BlpCompression` have `NFData` instances.
 - `blp2any stats` groups BLP2 files too, by content type, `alphaDepth`,
   `alphaType` and `hasMips`. Group names of BLP1 files are unchanged.
+- Internal modules: the parser and decoder return `BlpDecodeError`, and the
+  decoder `Image PixelRGBA8`.
 
 0.6.0.0 (2026-10-16)
 ====================

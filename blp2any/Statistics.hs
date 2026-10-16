@@ -5,6 +5,7 @@ module Statistics(
   ) where
 
 import Codec.Picture.Blp.Internal.Data
+import Codec.Picture.Blp (BlpVersion(..))
 import Codec.Picture.Blp.Internal.Parser
 import Control.Monad
 import Data.Char (toLower)
@@ -19,7 +20,11 @@ import qualified Data.List as L
 
 import File 
 
-type BlpInfo = (BlpCompression, Word32, Word32, Word32)
+-- | What files are grouped by: version, content type and the header fields
+-- that vary between files, with their names.
+data BlpInfo = BlpInfo BlpVersion BlpCompression [(String, Word32)]
+  deriving (Eq, Ord)
+
 type BlpStat = (FilePath, Int)
 
 type StatMap = M.Map BlpInfo BlpStat
@@ -33,7 +38,7 @@ collectSamples dir = do
 collectSample :: StatMap -> FilePath -> IO StatMap
 collectSample stats inputFile = do
   putStrLn $ "Sampling " ++ inputFile
-  result <- tryAll (parseBlp <$> BS.readFile inputFile)
+  result <- tryAll (parseBlpFile <$> BS.readFile inputFile)
   case join result of
     Left err -> do
       -- One unreadable file should not lose the statistics of the rest.
@@ -41,8 +46,11 @@ collectSample stats inputFile = do
       return stats
     Right blp -> return $ adjust' (updateStat inputFile) (blpType blp) stats
 
-blpType :: BlpStruct -> BlpInfo 
-blpType blp@BlpStruct{..} = (blpCompression blp, blpAlphaBits, blpExtra, blpHasMipmaps)
+blpType :: BlpFile -> BlpInfo
+blpType (BlpFile1 blp@BlpStruct{..}) = BlpInfo Blp1 (blpCompression blp)
+  [("alpha", blpAlphaBits), ("extra", blpExtra), ("mips", blpHasMipmaps)]
+blpType (BlpFile2 blp@Blp2Struct{..}) = BlpInfo Blp2 (blp2Compression blp)
+  [("alpha", fromIntegral blp2AlphaDepth), ("alphaType", fromIntegral blp2AlphaType), ("mips", fromIntegral blp2HasMips)]
 
 adjust' :: (Maybe BlpStat -> BlpStat) -> BlpInfo -> StatMap -> StatMap 
 adjust' f k m = M.insert k (f $ M.lookup k m) m
@@ -54,8 +62,8 @@ updateStat _ (Just (p, i)) = (p, i+1)
 printStatistics :: FilePath -> StatMap -> IO () 
 printStatistics dir stats = do
     createDirectoryIfMissing True dir
-    forM_ (M.toList stats) $ \((compression, alphaBits, extra, hasMipmaps), (path, i)) -> do 
-      let postfix = L.intercalate "-" [show compression, "alpha" ++ show alphaBits, "extra" ++ show extra, "mips" ++ show hasMipmaps]
+    forM_ (M.toList stats) $ \(BlpInfo version compression fields, (path, i)) -> do
+      let postfix = L.intercalate "-" $ [show version | version /= Blp1] ++ show compression : [name ++ show v | (name, v) <- fields]
       copyFile path $ dir </> dropExtension (takeFileName path) ++ "-" ++ postfix ++ ".blp"
       putStrLn $ postfix ++ ": " ++ show i ++ " images"
 

@@ -18,6 +18,8 @@ import Test.Tasty.QuickCheck (testProperty)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 
+import Blp2 (blp2Seeds)
+
 propertyTests :: TestTree
 propertyTests = testGroup "properties"
   [ testGroup "fuzz"
@@ -30,7 +32,7 @@ propertyTests = testGroup "properties"
 
 -- | Valid files of every kind, to be damaged.
 seeds :: [ByteString]
-seeds =
+seeds = blp2Seeds ++
   [ encode (BlpFormatJpeg 90) 16 (texture 16 8)
   , encode (BlpFormatJpeg 50) 1 (texture 5 7)
   , encode (BlpFormatJpeg 90) 16 (opaque 8 8)

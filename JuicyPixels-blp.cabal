@@ -3,11 +3,13 @@ name:                JuicyPixels-blp
 version:             0.5.0.0
 synopsis:            BLP format decoder/encoder over JuicyPixels library
 description:
-  Read and write BLP1, the texture format of Warcraft III, with images as
+  Read and write BLP1, the texture format of Warcraft III, and read BLP2,
+  its World of Warcraft variant, with images as
   [JuicyPixels](https://hackage.haskell.org/package/JuicyPixels) types.
-  Supports JPEG and paletted content with and without alpha, mipmaps, and
-  the non-standard files common in community maps. Includes @blp2any@, a
-  converter between BLP and PNG, JPEG, TIFF, GIF and BMP.
+  Supports JPEG, paletted, DXT1/3/5 and BGRA content with and without
+  alpha, mipmaps, and the non-standard files common in community maps.
+  Includes @blp2any@, a converter between BLP and PNG, JPEG, TIFF, GIF and
+  BMP.
   .
   See the README for usage and limitations, and @docs/format.md@ for the
   file format.
@@ -116,6 +118,7 @@ test-suite spec
   -- No test needs more; a decoder that allocates without bound fails loudly.
   ghc-options:         -rtsopts -with-rtsopts=-M1g
   other-modules:
+    Blp2
     Deprecated
     Dxt
     Fixture

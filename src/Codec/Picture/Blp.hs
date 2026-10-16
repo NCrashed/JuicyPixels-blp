@@ -1,10 +1,12 @@
 {-|
-Decoding and encoding of BLP1, the texture format of Warcraft III, on top of
-JuicyPixels.
+Decoding and encoding of BLP, the texture format of Warcraft III (BLP1) and
+World of Warcraft (BLP2), on top of JuicyPixels. BLP1 is read and written,
+BLP2 is read.
 
 BLP1 comes in two flavours: JPEG compressed and uncompressed with a 256
 colour palette. Uncompressed textures either carry an alpha plane or not.
-A file holds the full size image followed by its mipmaps, each half the size
+BLP2 adds DXT1, DXT3 and DXT5 block compression and plain BGRA pixels. A
+file holds the full size image followed by its mipmaps, each half the size
 of the previous one.
 
 Decoding always yields 'ImageRGBA8'. Files from the wild are often slightly
@@ -33,6 +35,7 @@ module Codec.Picture.Blp(
   -- * Inspecting
   , blpInfo
   , BlpInfo(..)
+  , BlpVersion(..)
   , BlpCompression(..)
   -- * Encoding
   , encodeBlpWith
@@ -99,13 +102,13 @@ decodeBlpMipmaps = decodeBlpMipmapsWith defaultBlpDecodeOptions
 -- list stops at the first one that is damaged, so a broken mipmap never
 -- costs the levels before it. A damaged full size image fails the file.
 decodeBlpMipmapsWith :: BlpDecodeOptions -> ByteString -> Either String [DynamicImage]
-decodeBlpMipmapsWith opts bs = parseBlp bs >>= decodeBlpStruct opts
+decodeBlpMipmapsWith opts bs = parseBlpFile bs >>= decodeBlpFile opts
 
 -- | Read the header of a BLP file. This checks what 'decodeBlp' checks before
 -- decoding (format, size, mipmap slots) but decodes no pixels, so it is cheap
 -- on any input. Use it to reject textures that are too large.
 blpInfo :: ByteString -> Either String BlpInfo
-blpInfo bs = blpStructInfo <$> parseBlp bs
+blpInfo bs = blpFileInfo <$> parseBlpFile bs
 
 -- | Number of mip levels, mip 0 included, whose larger side is at least the
 -- given length; never less than one and at most 16. Use it as 'blpMipLevels'.

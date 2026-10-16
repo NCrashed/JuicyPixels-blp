@@ -5,7 +5,7 @@ module Dxt(dxtTests) where
 
 import Codec.Picture
 import Codec.Picture.Blp.Internal.Dxt
-import Data.Bits
+import Fixture (colourBlock, dxt3Alpha, dxt5Alpha)
 import Data.ByteString (ByteString)
 import Data.Either (isLeft)
 import Data.Word
@@ -75,23 +75,6 @@ row0 img = [pixelAt img x 0 | x <- [0 .. 3]]
 
 alphas :: Image PixelRGBA8 -> [Word8]
 alphas img = [a | y <- [0 .. 3], x <- [0 .. 3], let PixelRGBA8 _ _ _ a = pixelAt img x y]
-
--- | A colour block: two endpoints and the indices of the first pixels, the
--- rest zero.
-colourBlock :: Int -> Int -> [Int] -> ByteString
-colourBlock c0 c1 ixs = BS.pack $ le 2 c0 ++ le 2 c1 ++ le 4 (packBits 2 ixs)
-
-dxt3Alpha :: [Int] -> ByteString
-dxt3Alpha = BS.pack . le 8 . packBits 4
-
-dxt5Alpha :: Int -> Int -> [Int] -> ByteString
-dxt5Alpha a0 a1 ixs = BS.pack $ map fromIntegral [a0, a1] ++ le 6 (packBits 3 ixs)
-
-packBits :: Int -> [Int] -> Integer
-packBits bits = sum . zipWith (\i v -> toInteger v `shiftL` (bits * i)) [0 ..]
-
-le :: Integral a => Int -> a -> [Word8]
-le n v = [fromIntegral (toInteger v `shiftR` (8 * k)) | k <- [0 .. n - 1]]
 
 -- | A random image in every format: random bytes of exactly the right size.
 data Case = Case DxtFormat Int Int ByteString

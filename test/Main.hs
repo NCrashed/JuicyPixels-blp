@@ -17,6 +17,7 @@ import Test.Tasty.HUnit
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 
+import Blp2
 import Deprecated
 import Dxt
 import Properties
@@ -33,6 +34,7 @@ main = defaultMain $ testGroup "JuicyPixels-blp"
   , fileTests
   , deprecatedTests
   , dxtTests
+  , blp2Tests
   , propertyTests
   ]
 
@@ -151,7 +153,7 @@ uncompressedTests = testGroup "uncompressed"
 malformedTests :: TestTree
 malformedTests = testGroup "malformed input"
   [ testCase "wrong version tag" $
-      assertLeft "BLP1" . decodeBlp $ "BLP2" <> BS.drop 4 (withAlphaFile 4)
+      assertLeft "BLP1" . decodeBlp $ "BLP0" <> BS.drop 4 (withAlphaFile 4)
   , testCase "unknown compression" $
       assertLeft "compression" . decodeBlp $ uncompressed defHeader { hCompression = 7 } (palette 256) [indices]
   , testCase "truncated header" $
@@ -493,13 +495,13 @@ limitTests = testGroup "limits and inspection"
       assertLeft "above the limit" $ limited 15 (withAlphaFile 4)
       assertBool "4x4 paletted fits 16 pixels" . either (const False) (const True) $ limited 16 (withAlphaFile 4)
   , testCase "blpInfo reads the header" $ do
-      blpInfo jpegFile @?= Right (BlpInfo BlpCompressionJPEG 16 16 8 3)
-      blpInfo (withAlphaFile 4) @?= Right (BlpInfo BlpCompressionUncompressed 4 4 8 1)
-      blpInfo withoutAlphaFile @?= Right (BlpInfo BlpCompressionUncompressed 4 4 0 1)
+      blpInfo jpegFile @?= Right (BlpInfo Blp1 BlpCompressionJPEG 16 16 8 3)
+      blpInfo (withAlphaFile 4) @?= Right (BlpInfo Blp1 BlpCompressionUncompressed 4 4 8 1)
+      blpInfo withoutAlphaFile @?= Right (BlpInfo Blp1 BlpCompressionUncompressed 4 4 0 1)
   , testCase "blpInfo decodes no pixels" $
       fmap (\i -> (blpInfoWidth i, blpInfoHeight i)) (blpInfo (inflated 16384)) @?= Right (16384, 16384)
   , testCase "blpInfo rejects what decodeBlp rejects" $ do
-      assertLeft "BLP1" . blpInfo $ "BLP2" <> BS.drop 4 (withAlphaFile 4)
+      assertLeft "BLP1" . blpInfo $ "BLP0" <> BS.drop 4 (withAlphaFile 4)
       assertLeft "Invalid image size" . blpInfo $ setDword 12 0 (withAlphaFile 4)
   ]
 

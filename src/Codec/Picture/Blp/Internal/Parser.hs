@@ -1,13 +1,16 @@
 {-|
-Parser for BLP1 files. It reads the header with attoparsec and takes the
-content (JPEG header, palette, mip levels) straight from the slots the header
-points at; turning the content into images is done in
+Parser for BLP1 and BLP2 files. It reads the header with attoparsec and
+takes the content (JPEG header, palette, mip levels) straight from the slots
+the header points at; turning the content into images is done in
 "Codec.Picture.Blp.Internal.Decoder".
 
 This is an internal module: its API may change between minor versions.
 -}
 module Codec.Picture.Blp.Internal.Parser(
     parseBlp
+  , parseBlp2
+  , parseBlpFile
+  , readPalette
   , blpVersion
   , dword
   , compressionParser
@@ -28,6 +31,7 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 
 import Codec.Picture.Blp.Internal.Data
+import Codec.Picture.Blp.Internal.Dxt (DxtFormat(..))
 
 -- | Size of the fixed BLP1 header in bytes.
 headerSize :: Int
@@ -50,7 +54,6 @@ parseBlp input = do
     then Left $ "Invalid image size " ++ show width ++ "x" ++ show height
     else Right ()
   let levelsFrom start = mipLevels (BS.length input) start (mipChainLength w h) slots
-      slice (offset, size) = BS.take size (BS.drop offset input)
   fmap mkStruct $ case compression of
     BlpCompressionJPEG -> do
       jpegHeaderSize <- parseOnly (AT.take headerSize *> dword <?> "jpeg header size") input
@@ -58,26 +61,96 @@ parseBlp input = do
       if headerEnd > BS.length input
         then Left "jpeg header: not enough input"
         else Right BlpJpeg {
-            blpJpegHeader = slice (headerSize + 4, fromIntegral jpegHeaderSize)
-          , blpJpegData = slice <$> levelsFrom headerEnd
+            blpJpegHeader = slice input (headerSize + 4, fromIntegral jpegHeaderSize)
+          , blpJpegData = slice input <$> levelsFrom headerEnd
           }
-    BlpCompressionUncompressed -> do
+    _ -> do
+      -- compressionParser gives JPEG or paletted only.
       let levels = levelsFrom headerSize
-          -- Some tools write only the palette entries they use, so the
-          -- palette ends where mip 0 starts. Missing entries are padded
-          -- with transparent black, so any index stays valid.
-          paletteEnd = case levels of
-            (offset, _) : _ -> min offset (headerSize + 1024)
-            [] -> headerSize + 1024
-          paletteBytes = slice (headerSize, paletteEnd - headerSize)
-          entries = BS.length paletteBytes `div` 4
-          entry i = let b k = BS.index paletteBytes (4 * i + k)
-                    in PixelRGBA8 (b 0) (b 1) (b 2) (b 3)
       Right BlpPaletted {
-          blpPalette = V.generate 256 $ \i ->
-            if i < entries then entry i else PixelRGBA8 0 0 0 0
-        , blpPalettedMipMaps = slice <$> levels
+          blpPalette = readPalette input headerSize levels
+        , blpPalettedMipMaps = slice input <$> levels
         }
+
+-- | The 256 entry palette that starts at the given offset. Some tools write
+-- only the palette entries they use, so the palette ends where mip 0
+-- starts. Missing entries are padded with transparent black, so any index
+-- stays valid.
+readPalette :: ByteString -> Int -> [(Int, Int)] -> V.Vector PixelRGBA8
+readPalette input start levels = V.generate 256 $ \i ->
+  if i < entries then entry i else PixelRGBA8 0 0 0 0
+  where
+    paletteEnd = case levels of
+      (offset, _) : _ -> min offset (start + 1024)
+      [] -> start + 1024
+    paletteBytes = slice input (start, paletteEnd - start)
+    entries = BS.length paletteBytes `div` 4
+    entry i = let b k = BS.index paletteBytes (4 * i + k)
+              in PixelRGBA8 (b 0) (b 1) (b 2) (b 3)
+
+-- | The bytes at an offset and size, cut short at the end of the input.
+slice :: ByteString -> (Int, Int) -> ByteString
+slice input (offset, size) = BS.take size (BS.drop offset input)
+
+-- | Parse a BLP1 or BLP2 file, told apart by their magic. Anything that is
+-- not BLP2 is parsed, and rejected, as BLP1.
+parseBlpFile :: ByteString -> Either String BlpFile
+parseBlpFile input
+  | BS.take 4 input == "BLP2" = BlpFile2 <$> parseBlp2 input
+  | otherwise = BlpFile1 <$> parseBlp input
+
+-- | Size of the fixed BLP2 header, before the palette: tag, type, four
+-- bytes, width, height, 16 offsets and 16 sizes.
+blp2HeaderSize :: Int
+blp2HeaderSize = 148
+
+-- | Parse a BLP2 file into its header and raw content.
+--
+-- Only type 1 files are read; type 0 holds JPEG content, which no known
+-- file uses. Width and height must be between 1 and 'maxSide', and mip
+-- levels are taken slot by slot, as in BLP1 (see 'mipLevels'). Levels may
+-- start right after the header: the palette that follows it is only read
+-- for paletted content, and cut short where mip 0 starts.
+parseBlp2 :: ByteString -> Either String Blp2Struct
+parseBlp2 input = do
+  (blpType, encoding, blp2AlphaDepth, blp2AlphaType, blp2HasMips, blp2Width, blp2Height, slots) <-
+    parseOnly blp2HeaderParser input
+  let w = fromIntegral blp2Width
+      h = fromIntegral blp2Height
+  case blpType of
+    1 -> Right ()
+    0 -> Left "BLP2 files with JPEG content are not supported"
+    t -> Left $ "Unknown BLP2 type " ++ show t
+  if w < 1 || h < 1 || w > maxSide || h > maxSide
+    then Left $ "Invalid image size " ++ show blp2Width ++ "x" ++ show blp2Height
+    else Right ()
+  let levels = mipLevels (BS.length input) blp2HeaderSize (mipChainLength w h) slots
+  blp2Content <- case encoding of
+    1 -> Right . Blp2Paletted $ readPalette input blp2HeaderSize levels
+    2 -> case blp2AlphaType of
+      0 -> Right . Blp2Dxt $ Dxt1 (blp2AlphaDepth /= 0)
+      1 -> Right $ Blp2Dxt Dxt3
+      7 -> Right $ Blp2Dxt Dxt5
+      t -> Left $ "Unknown BLP2 DXT format (alpha type " ++ show t ++ ")"
+    3 -> Right Blp2Bgra
+    e -> Left $ "Unknown BLP2 encoding " ++ show e
+  return Blp2Struct { blp2MipMaps = slice input <$> levels, .. }
+
+-- | The BLP2 header: type, encoding, alpha depth, alpha type, has mips,
+-- width, height and the mipmap slots.
+blp2HeaderParser :: Parser (Word32, Word8, Word8, Word8, Word8, Word32, Word32, [(Word32, Word32)])
+blp2HeaderParser = do
+  _ <- string "BLP2" <?> "BLP2 version tag"
+  blpType <- dword <?> "type"
+  encoding <- AT.anyWord8 <?> "encoding"
+  alphaDepth <- AT.anyWord8 <?> "alpha depth"
+  alphaType <- AT.anyWord8 <?> "alpha type"
+  hasMips <- AT.anyWord8 <?> "has mips"
+  width <- dword <?> "width"
+  height <- dword <?> "height"
+  offsets <- count 16 dword <?> "mipmaps offsets"
+  sizes <- count 16 dword <?> "mipmaps sizes"
+  return (blpType, encoding, alphaDepth, alphaType, hasMips, width, height, offsets `zip` sizes)
 
 -- | The fixed header: a function completing the struct with its content,
 -- plus the fields needed to read the content.

@@ -1,6 +1,26 @@
 Unreleased
 ==========
 
+BLP2, the World of Warcraft variant, can be read. This changes `BlpInfo`
+and `BlpCompression`, so the next release is 0.6.0.0.
+
+- `decodeBlp`, `decodeBlpMipmaps`, their `With` and `read` variants and
+  `blpInfo` read BLP2 files: DXT1, DXT3, DXT5, BGRA and paletted content,
+  with mipmaps. Damaged levels are handled as in BLP1, and the size limit
+  applies. An alpha depth of 0 makes the image opaque. BLP2 files with JPEG
+  content (`type` 0) are rejected; no known file uses them. `blp2any
+  convert` reads BLP2 too.
+- **Breaking:** `BlpInfo` has a new first field, `blpInfoVersion ::
+  BlpVersion` (`Blp1` or `Blp2`), and `BlpCompression` new constructors
+  `BlpCompressionDxt1`, `BlpCompressionDxt3`, `BlpCompressionDxt5` and
+  `BlpCompressionBgra`. Code that builds `BlpInfo` positionally or matches
+  `BlpCompression` exhaustively needs updating.
+- Files whose magic is neither `BLP1` nor `BLP2` are still rejected with the
+  BLP1 parser's error.
+- Internal modules: `Blp2Struct`, `Blp2Content` and `BlpFile` in
+  `Internal.Data`; `parseBlp2`, `parseBlpFile` and `readPalette` in
+  `Internal.Parser`; `decodeBlpFile`, `decodeBlp2Struct`, `blpFileInfo` and
+  `blp2StructInfo` in `Internal.Decoder`.
 - The benchmarks accept `tasty-bench` 0.5. This only matters when building
   them; the library and `blp2any` are unchanged. 0.5.0.0 has the same
   bound in a Hackage revision.

@@ -7,6 +7,7 @@ module Codec.Picture.Blp.Types(
     BlpDecodeOptions(..)
   , defaultBlpDecodeOptions
   , BlpInfo(..)
+  , BlpVersion(..)
   , BlpCompression(..)
   , BlpFormat(..)
   , BlpEncodeOptions(..)
@@ -30,17 +31,27 @@ defaultBlpDecodeOptions = BlpDecodeOptions { blpMaxPixels = 8192 * 8192 }
 
 -- | What a BLP file holds, read from its header without decoding any pixels.
 data BlpInfo = BlpInfo {
-    blpInfoCompression :: !BlpCompression -- ^ JPEG or paletted content
+    blpInfoVersion :: !BlpVersion -- ^ BLP1 or BLP2
+  , blpInfoCompression :: !BlpCompression -- ^ How the pixels are stored
   , blpInfoWidth :: !Int -- ^ Width of the full size image
   , blpInfoHeight :: !Int -- ^ Height of the full size image
-  , blpInfoAlphaBits :: !Int -- ^ The @alphaBits@ header field, as stored
+  , blpInfoAlphaBits :: !Int -- ^ The alpha depth header field (@alphaBits@ in BLP1, @alphaDepth@ in BLP2), as stored
   , blpInfoMipLevels :: !Int -- ^ Mip levels with usable slots, the full size image included
   } deriving (Eq, Show)
 
--- | Header dword @0x04@.
+-- | Version of a BLP file: BLP1 is used by Warcraft III, BLP2 by World of
+-- Warcraft.
+data BlpVersion = Blp1 | Blp2
+  deriving (Eq, Ord, Enum, Bounded, Show, Generic)
+
+-- | How the pixels of a BLP file are stored.
 data BlpCompression =
-    BlpCompressionJPEG -- ^ 0: JPEG
-  | BlpCompressionUncompressed -- ^ 1: 256 colour palette
+    BlpCompressionJPEG -- ^ JPEG (BLP1 only)
+  | BlpCompressionUncompressed -- ^ 256 colour palette
+  | BlpCompressionDxt1 -- ^ DXT1 blocks (BLP2 only)
+  | BlpCompressionDxt3 -- ^ DXT3 blocks (BLP2 only)
+  | BlpCompressionDxt5 -- ^ DXT5 blocks (BLP2 only)
+  | BlpCompressionBgra -- ^ 32-bit BGRA pixels (BLP2 only)
   deriving (Eq, Ord, Enum, Bounded, Show, Generic)
 
 -- | How to encode a texture.

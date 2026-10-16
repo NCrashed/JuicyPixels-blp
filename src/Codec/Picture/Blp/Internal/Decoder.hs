@@ -1,13 +1,18 @@
 {-|
-Turning a parsed BLP1 file into images: the size limit, JPEG levels with
-their shared header and alpha decision, and paletted levels with packed
-alpha. "Codec.Picture.Blp" parses the file and calls 'decodeBlpStruct'.
+Turning a parsed BLP1 or BLP2 file into images: the size limit, JPEG levels
+with their shared header and alpha decision, paletted levels with packed
+alpha, and BLP2's DXT and BGRA levels. "Codec.Picture.Blp" parses the file
+and calls 'decodeBlpFile'.
 
 This is an internal module: its API may change between minor versions.
 -}
 module Codec.Picture.Blp.Internal.Decoder(
-    decodeBlpStruct
+    decodeBlpFile
+  , blpFileInfo
+  , decodeBlpStruct
+  , decodeBlp2Struct
   , blpStructInfo
+  , blp2StructInfo
   ) where
 
 import Codec.Picture
@@ -16,6 +21,7 @@ import Control.Exception
 import Control.Monad (when)
 import Data.Bits ((.&.), shiftR)
 import Data.ByteString (ByteString)
+import Data.Either (isRight)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
 import qualified Data.ByteString as BS
@@ -23,6 +29,7 @@ import qualified Data.Vector as V
 
 import Codec.Picture.Blp.Internal.Convert
 import Codec.Picture.Blp.Internal.Data
+import Codec.Picture.Blp.Internal.Dxt
 import Codec.Picture.Blp.Internal.Parser
 import Codec.Picture.Blp.Types
 
@@ -32,9 +39,7 @@ decodeBlpStruct :: BlpDecodeOptions -> BlpStruct -> Either String [DynamicImage]
 decodeBlpStruct opts blp = do
   let width = fromIntegral $ blpWidth blp
       height = fromIntegral $ blpHeight blp
-  when (width * height > blpMaxPixels opts) . Left $
-    "Image size " ++ show width ++ "x" ++ show height ++ " is above the limit of "
-    ++ show (blpMaxPixels opts) ++ " pixels"
+  checkSize opts width height
   case blpExt blp of
     BlpJpeg {..} -> case blpJpegData of
       [] -> Left "No JPEG mipmap data in BLP"
@@ -73,17 +78,68 @@ decodeBlpStruct opts blp = do
           else generateImage (\x y -> if x < imageWidth rgba && y < imageHeight rgba
             then pixelAt rgba x y else PixelRGBA8 0 0 0 0) lw lh
 
-    BlpPaletted {..} -> palettedLevels width height alphaBits blpPalette blpPalettedMipMaps
-      where
-      -- Alpha depth as declared, if valid for paletted content. A mip 0 too
-      -- short to hold that much alpha has none: some tools declare alpha and
-      -- then write only the index list.
-      declared = case blpAlphaBits blp of
-        b | b `elem` [1, 4, 8] -> fromIntegral b
-        _ -> 0
-      alphaBits = case blpPalettedMipMaps of
-        mip0 : _ | BS.length mip0 < levelBytes (width * height) declared -> 0
-        _ -> declared
+    BlpPaletted {..} -> palettedImages width height (fromIntegral (blpAlphaBits blp)) blpPalette blpPalettedMipMaps
+
+-- | Decode the full size image of a parsed BLP2 file followed by its
+-- mipmaps, all 'ImageRGBA8'. Levels are taken as in BLP1: a damaged level 0
+-- fails the file, and the list stops at the first damaged mipmap. An alpha
+-- depth of 0 makes every level opaque.
+decodeBlp2Struct :: BlpDecodeOptions -> Blp2Struct -> Either String [DynamicImage]
+decodeBlp2Struct opts blp = do
+  checkSize opts width height
+  case blp2Content blp of
+    Blp2Paletted palette -> palettedImages width height (fromIntegral (blp2AlphaDepth blp)) palette (blp2MipMaps blp)
+    Blp2Dxt fmt -> levels (\(lw, lh) -> decodeDxt fmt lw lh)
+    Blp2Bgra -> levels bgraLevel
+  where
+    width = fromIntegral $ blp2Width blp
+    height = fromIntegral $ blp2Height blp
+    finish = if blp2AlphaDepth blp == 0 then setOpaque else id
+    levels decode = case blp2MipMaps blp of
+      [] -> Left "No mipmap data in BLP2"
+      mips -> case [decode (levelSize width height l) mip | (l, mip) <- zip [0 ..] mips] of
+        Left e : _ -> Left $ "Mipmap 0: " ++ e
+        decoded -> Right [ImageRGBA8 (finish img) | Right img <- takeWhile isRight decoded]
+
+-- | A level of four bytes per pixel, B, G, R and A.
+bgraLevel :: (Int, Int) -> ByteString -> Either String (Image PixelRGBA8)
+bgraLevel (w, h) bytes
+  | BS.length bytes < 4 * w * h = Left $ "BGRA data is " ++ show (BS.length bytes)
+      ++ " bytes, a " ++ show w ++ "x" ++ show h ++ " level needs " ++ show (4 * w * h)
+  | otherwise = Right $ generateImage pixel w h
+  where
+    pixel x y = let p = 4 * (y * w + x); b k = BS.index bytes (p + k)
+                in PixelRGBA8 (b 2) (b 1) (b 0) (b 3)
+
+setOpaque :: Image PixelRGBA8 -> Image PixelRGBA8
+setOpaque = pixelMap (\(PixelRGBA8 r g b _) -> PixelRGBA8 r g b 255)
+
+-- | Reject an image above the size limit before anything is allocated.
+checkSize :: BlpDecodeOptions -> Int -> Int -> Either String ()
+checkSize opts width height = when (width * height > blpMaxPixels opts) . Left $
+  "Image size " ++ show width ++ "x" ++ show height ++ " is above the limit of "
+  ++ show (blpMaxPixels opts) ++ " pixels"
+
+-- | Paletted levels with the declared alpha depth, if it is valid for
+-- paletted content. A mip 0 too short to hold that much alpha has none:
+-- some tools declare alpha and then write only the index list.
+palettedImages :: Int -> Int -> Int -> V.Vector PixelRGBA8 -> [ByteString] -> Either String [DynamicImage]
+palettedImages width height declaredBits palette mips = palettedLevels width height alphaBits palette mips
+  where
+    declared = if declaredBits `elem` [1, 4, 8] then declaredBits else 0
+    alphaBits = case mips of
+      mip0 : _ | BS.length mip0 < levelBytes (width * height) declared -> 0
+      _ -> declared
+
+-- | Decode a parsed BLP1 or BLP2 file.
+decodeBlpFile :: BlpDecodeOptions -> BlpFile -> Either String [DynamicImage]
+decodeBlpFile opts (BlpFile1 blp) = decodeBlpStruct opts blp
+decodeBlpFile opts (BlpFile2 blp) = decodeBlp2Struct opts blp
+
+-- | What 'Codec.Picture.Blp.blpInfo' reports for a parsed BLP1 or BLP2 file.
+blpFileInfo :: BlpFile -> BlpInfo
+blpFileInfo (BlpFile1 blp) = blpStructInfo blp
+blpFileInfo (BlpFile2 blp) = blp2StructInfo blp
 
 -- | Size of mip level @l@ of a @w@ x @h@ texture: each side halved @l@ times,
 -- but never below one pixel.
@@ -105,7 +161,8 @@ safeDecodeJpeg jpeg = unsafeDupablePerformIO $ do
 -- | What 'Codec.Picture.Blp.blpInfo' reports for a parsed file.
 blpStructInfo :: BlpStruct -> BlpInfo
 blpStructInfo blp = BlpInfo {
-    blpInfoCompression = blpCompression blp
+    blpInfoVersion = Blp1
+  , blpInfoCompression = blpCompression blp
   , blpInfoWidth = fromIntegral $ blpWidth blp
   , blpInfoHeight = fromIntegral $ blpHeight blp
   , blpInfoAlphaBits = fromIntegral $ blpAlphaBits blp
@@ -150,3 +207,14 @@ palettedLevels width height alphaBits palette mips
       1 -> 255 * ((alphas `BS.index` (i `div` 8) `shiftR` (i `mod` 8)) .&. 1)
       _ -> 255
 
+
+-- | What 'Codec.Picture.Blp.blpInfo' reports for a parsed BLP2 file.
+blp2StructInfo :: Blp2Struct -> BlpInfo
+blp2StructInfo blp = BlpInfo {
+    blpInfoVersion = Blp2
+  , blpInfoCompression = blp2Compression blp
+  , blpInfoWidth = fromIntegral $ blp2Width blp
+  , blpInfoHeight = fromIntegral $ blp2Height blp
+  , blpInfoAlphaBits = fromIntegral $ blp2AlphaDepth blp
+  , blpInfoMipLevels = length (blp2MipMaps blp)
+  }

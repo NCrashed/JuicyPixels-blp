@@ -48,15 +48,6 @@ module Codec.Picture.Blp(
   , BlpFormat(..)
   , BlpEncodeError(..)
   , mipMapsUpTo
-  -- * Deprecated encoders
-  -- | These predate 'encodeBlpWith'. They clamp the JPEG quality to 1..100
-  -- and throw on images 'encodeBlpWith' rejects.
-  , writeBlpJpeg
-  , writeBlpUncompressedWithAlpha
-  , writeBlpUncompressedWithoutAlpha
-  , encodeBlpJpeg
-  , encodeBlpUncompressedWithAlpha
-  , encodeBlpUncompressedWithoutAlpha
   ) where
 
 import Codec.Picture
@@ -139,47 +130,3 @@ encodeBlpWith opts@BlpEncodeOptions{..} img
 -- | Encode an image with 'encodeBlpWith' and write it to a file.
 writeBlpWith :: FilePath -> BlpEncodeOptions -> DynamicImage -> IO (Either BlpEncodeError ())
 writeBlpWith fp opts img = traverse (BSL.writeFile fp) (encodeBlpWith opts img)
-
--- | Encode with 'encodeBlpJpeg' and write the result to a file.
-writeBlpJpeg :: FilePath -> Int -> Int -> DynamicImage -> IO ()
-writeBlpJpeg fp quality numMips img = BSL.writeFile fp $ encodeBlpJpeg quality numMips img
-{-# DEPRECATED writeBlpJpeg "Use writeBlpWith" #-}
-
--- | Encode with 'encodeBlpUncompressedWithAlpha' and write the result to a file.
-writeBlpUncompressedWithAlpha :: FilePath -> Int -> DynamicImage -> IO ()
-writeBlpUncompressedWithAlpha fp numMips img = BSL.writeFile fp $ encodeBlpUncompressedWithAlpha numMips img
-{-# DEPRECATED writeBlpUncompressedWithAlpha "Use writeBlpWith" #-}
-
--- | Encode with 'encodeBlpUncompressedWithoutAlpha' and write the result to a
--- file.
-writeBlpUncompressedWithoutAlpha :: FilePath -> Int -> DynamicImage -> IO ()
-writeBlpUncompressedWithoutAlpha fp numMips img = BSL.writeFile fp $ encodeBlpUncompressedWithoutAlpha numMips img
-{-# DEPRECATED writeBlpUncompressedWithoutAlpha "Use writeBlpWith" #-}
-
--- | Encode as a JPEG compressed BLP; see 'BlpFormatJpeg'.
-encodeBlpJpeg :: Int -- ^ JPEG quality, clamped to 1..100
-  -> Int -- ^ Number of mip levels to write
-  -> DynamicImage
-  -> BSL.ByteString
-encodeBlpJpeg quality numMips =
-  orThrow "encodeBlpJpeg" . encodeBlpWith defaultBlpEncodeOptions { blpFormat = BlpFormatJpeg (max 1 (min 100 quality)), blpMipLevels = numMips }
-{-# DEPRECATED encodeBlpJpeg "Use encodeBlpWith with BlpFormatJpeg" #-}
-
--- | Encode with a 256 colour palette and 8-bit alpha; see 'BlpFormatPaletted'.
-encodeBlpUncompressedWithAlpha :: Int -- ^ Number of mip levels to write
-  -> DynamicImage
-  -> BSL.ByteString
-encodeBlpUncompressedWithAlpha numMips =
-  orThrow "encodeBlpUncompressedWithAlpha" . encodeBlpWith defaultBlpEncodeOptions { blpFormat = BlpFormatPaletted True, blpMipLevels = numMips }
-{-# DEPRECATED encodeBlpUncompressedWithAlpha "Use encodeBlpWith with BlpFormatPaletted True" #-}
-
--- | Encode with a 256 colour palette and no alpha; see 'BlpFormatPaletted'.
-encodeBlpUncompressedWithoutAlpha :: Int -- ^ Number of mip levels to write
-  -> DynamicImage
-  -> BSL.ByteString
-encodeBlpUncompressedWithoutAlpha numMips =
-  orThrow "encodeBlpUncompressedWithoutAlpha" . encodeBlpWith defaultBlpEncodeOptions { blpFormat = BlpFormatPaletted False, blpMipLevels = numMips }
-{-# DEPRECATED encodeBlpUncompressedWithoutAlpha "Use encodeBlpWith with BlpFormatPaletted False" #-}
-
-orThrow :: String -> Either BlpEncodeError a -> a
-orThrow name = either (\e -> error $ name ++ ": " ++ show e) id

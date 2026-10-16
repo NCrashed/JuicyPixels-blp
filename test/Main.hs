@@ -17,7 +17,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 
 import Blp2
-import Deprecated
 import Dxt
 import Properties
 import Fixture
@@ -32,7 +31,6 @@ main = defaultMain $ testGroup "JuicyPixels-blp"
   , qualityTests
   , encoderTests
   , fileTests
-  , deprecatedTests
   , dxtTests
   , blp2Tests
   , propertyTests

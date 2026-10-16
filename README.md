@@ -56,9 +56,6 @@ main = do
   They return `Left` for images they cannot encode (`BlpEncodeError`): an
   empty image, a side above 65535 (after `blpMaxSize`), an invalid JPEG
   quality or size limit, or a file over 4 GiB.
-- The older `encodeBlpJpeg`, `encodeBlpUncompressedWithAlpha`,
-  `encodeBlpUncompressedWithoutAlpha` and their `write` variants are
-  deprecated wrappers around `encodeBlpWith`.
 
 The `Codec.Picture.Blp.Internal.*` modules expose the parser, decoder,
 encoder and file structure. They are useful for tools, but their API may
@@ -92,14 +89,28 @@ change between minor versions.
 
 ## Limitations
 
-- **BLP0, writing BLP2, and BLP2 with JPEG content.** BLP0 keeps mipmaps in
-  separate `.b00`–`.b15` files. BLP2 is read only, and its JPEG variant,
-  which no known file uses, is rejected.
 - **Lossy palette.** Uncompressed encoding quantises to 256 colours, so it is
   lossy for images with more colours. Mipmaps after the first are mapped to
   the first level's palette.
 - **Fixed header values.** The encoder writes `extra` as 3 with alpha and 5
   without, and `hasMipmaps` as 5, or 0 for a single level.
+
+## Out of scope
+
+The library reads every BLP version in use and writes the one Warcraft III
+needs. These are left out on purpose, not for lack of time:
+
+- **Writing BLP2.** It needs a DXT encoder, and World of Warcraft modding
+  already has tools for it.
+- **BLP0**, which keeps mipmaps in separate `.b00`–`.b15` files and appeared
+  only in the Reign of Chaos beta.
+- **BLP2 with JPEG content** (`type` 0): no known file uses it, so it is
+  rejected rather than guessed at.
+- **Writing 1-bit or 4-bit alpha, or chosen `extra` and `hasMipmaps`
+  values,** through the public encoder. `Codec.Picture.Blp.Internal.Encoder`
+  can write any `BlpStruct`.
+- **Archives and other texture formats**, such as MPQ, CASC or the DDS
+  textures of Warcraft III: Reforged.
 
 ## blp2any
 

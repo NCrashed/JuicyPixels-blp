@@ -4,10 +4,9 @@ import Codec.Picture
 import Codec.Picture.Blp
 import Codec.Picture.Blp.Internal.Encoder (createMipMaps)
 import Codec.Picture.Types (convertImage)
-import Control.Exception (bracket_, try)
+import Control.Exception (bracket_, displayException, throwIO, try)
 import Control.Monad (forM_)
 import Data.ByteString (ByteString)
-import Data.List (isInfixOf)
 import Data.Word
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.FilePath ((</>))
@@ -29,6 +28,7 @@ main = defaultMain $ testGroup "JuicyPixels-blp"
   , malformedTests
   , jpegTests
   , limitTests
+  , errorTests
   , qualityTests
   , encoderTests
   , fileTests
@@ -66,21 +66,16 @@ pixelsOf :: Image PixelRGBA8 -> [PixelRGBA8]
 pixelsOf img = [pixelAt img x y | y <- [0 .. imageHeight img - 1], x <- [0 .. imageWidth img - 1]]
 
 decodeRGBA :: ByteString -> IO (Image PixelRGBA8)
-decodeRGBA bs = either (assertFailure . ("decodeBlp: " ++)) (return . convertRGBA8) $ decodeBlp bs
+decodeRGBA bs = either (assertFailure . ("decodeBlp: " ++) . show) return $ decodeBlp bs
 
 decodeLevels :: ByteString -> IO [Image PixelRGBA8]
-decodeLevels bs = either (assertFailure . ("decodeBlpMipmaps: " ++)) (return . map convertRGBA8) $ decodeBlpMipmaps bs
+decodeLevels bs = either (assertFailure . ("decodeBlpMipmaps: " ++) . show) return $ decodeBlpMipmaps bs
 
 assertPixels :: (Word8 -> PixelRGBA8) -> ByteString -> Assertion
 assertPixels expected bs = do
   img <- decodeRGBA bs
   (imageWidth img, imageHeight img) @?= (4, 4)
   pixelsOf img @?= map expected [0 .. 15]
-
-assertLeft :: String -> Either String a -> Assertion
-assertLeft needle r = case r of
-  Left e -> assertBool ("error " ++ show e ++ " should mention " ++ show needle) (needle `isInfixOf` e)
-  Right _ -> assertFailure "expected a decoding error"
 
 uncompressedTests :: TestTree
 uncompressedTests = testGroup "uncompressed"
@@ -147,37 +142,37 @@ uncompressedTests = testGroup "uncompressed"
       levels <- decodeLevels bs
       sizes levels @?= [(4, 4)]
   , testCase "mip 0 shorter than the image is an error, not an exception (#13)" $
-      assertLeft "too short" . decodeBlp $ uncompressed defHeader { hAlphaBits = 0, hExtra = 5 } (palette 256) [BS.take 8 indices]
+      assertCorrupt "too short" . decodeBlp $ uncompressed defHeader { hAlphaBits = 0, hExtra = 5 } (palette 256) [BS.take 8 indices]
   ]
 
 malformedTests :: TestTree
 malformedTests = testGroup "malformed input"
   [ testCase "wrong version tag" $
-      assertLeft "BLP1" . decodeBlp $ "BLP0" <> BS.drop 4 (withAlphaFile 4)
+      assertError BlpNotBlp . decodeBlp $ "BLP0" <> BS.drop 4 (withAlphaFile 4)
   , testCase "unknown compression" $
-      assertLeft "compression" . decodeBlp $ uncompressed defHeader { hCompression = 7 } (palette 256) [indices]
+      assertError (BlpUnsupported "BLP1 content type 7") . decodeBlp $ uncompressed defHeader { hCompression = 7 } (palette 256) [indices]
   , testCase "truncated header" $
-      assertLeft "" . decodeBlp $ BS.take 100 (withAlphaFile 4)
+      assertError BlpTruncatedHeader . decodeBlp $ BS.take 100 (withAlphaFile 4)
   , testCase "empty input" $
-      assertLeft "" $ decodeBlp BS.empty
+      assertError BlpNotBlp $ decodeBlp BS.empty
   , testCase "file cut inside the header names the field" $
-      assertLeft "mipmaps sizes" . decodeBlp $ BS.take 100 (withAlphaFile 4)
+      assertError BlpTruncatedHeader . decodeBlp $ BS.take 100 (withAlphaFile 4)
   , testCase "JPEG header longer than the file" $
-      assertLeft "jpeg header" . decodeBlp $ setDword headerSize 100000 jpegFile
+      assertError BlpTruncatedHeader . decodeBlp $ setDword headerSize 100000 jpegFile
   , testCase "width or height outside 1..65535 is an error" $ do
       let sized w h = uncompressed defHeader { hAlphaBits = 0, hWidth = w, hHeight = h } (palette 256) [BS.replicate 4 0]
-      assertLeft "Invalid image size" . decodeBlp $ sized 0xFFFFFFFF 0xFFFFFFFF
-      assertLeft "Invalid image size" . decodeBlp $ sized 0 4
-      assertLeft "Invalid image size" . decodeBlp $ sized 4 65536
+      assertError (BlpInvalidSize 0xFFFFFFFF 0xFFFFFFFF) . decodeBlp $ sized 0xFFFFFFFF 0xFFFFFFFF
+      assertError (BlpInvalidSize 0 4) . decodeBlp $ sized 0 4
+      assertError (BlpInvalidSize 4 65536) . decodeBlp $ sized 4 65536
   , testCase "garbage slot before mip 0 leaves the palette intact" $ do
       let bs = setDword (offsetSlot 1) 200 . setDword (sizeSlot 1) 4 $ withAlphaFile 4
       assertPixels withAlphaPixel bs
       levels <- decodeLevels bs
       length levels @?= 1
   , testCase "uncompressed file without mipmaps" $
-      assertLeft "No data" . decodeBlp $ blpFile defHeader [] (paletteBytes $ palette 256)
+      assertError BlpNoImageData . decodeBlp $ blpFile defHeader [] (paletteBytes $ palette 256)
   , testCase "JPEG file without mipmaps" $
-      assertLeft "No JPEG mipmap data" . decodeBlp $ blpFile defHeader { hCompression = 0 } [] "\0\0\0\0"
+      assertError BlpNoImageData . decodeBlp $ blpFile defHeader { hCompression = 0 } [] "\0\0\0\0"
   ]
 
 -- | 16x16 texture with colour and alpha gradients, enough for three mip levels.
@@ -215,7 +210,7 @@ jpegTests = testGroup "jpeg"
       -- same length, so the stream reaches the scan without a frame size.
       let (before, sof) = BS.breakSubstring (BS.pack [0xFF, 0xC0]) jpegFile
       assertBool "the encoder writes SOF0" (not (BS.null sof))
-      assertLeft "no frame header" . decodeBlp $ before <> BS.pack [0xFF, 0xE1] <> BS.drop 2 sof
+      assertCorrupt "no frame header" . decodeBlp $ before <> BS.pack [0xFF, 0xE1] <> BS.drop 2 sof
   , testCase "all three mip levels decode" $ do
       levels <- decodeLevels jpegFile
       sizes levels @?= [(16, 16), (8, 8), (4, 4)]
@@ -235,7 +230,7 @@ jpegTests = testGroup "jpeg"
   , testCase "JPEG frame larger than its level is rejected before decoding" $ do
       let sof = frameHeaderAt (fromIntegral headerSize + 4) jpegFile
           huge = foldr (\(i, v) bs -> setByte i v bs) jpegFile [(sof + k, 0xFF) | k <- [5 .. 8]]
-      assertLeft "larger than its level size" $ decodeBlp huge
+      assertCorrupt "larger than its level size" $ decodeBlp huge
   , testCase "JPEG frame smaller than its level is padded with transparent black" $ do
       let big = setDword 12 32 (setDword 16 32 jpegFile)
       levels <- decodeLevels big
@@ -250,24 +245,21 @@ jpegTests = testGroup "jpeg"
       levels <- decodeLevels (setDword (sizeSlot 1) 0 jpegFile)
       sizes levels @?= [(16, 16)]
   , testCase "a JPEG decoder error in mip 0 is a Left" $
-      assertLeft "JPEG decoding failed" . decodeBlp $ jpegBlp 1 1 [badJpeg]
+      assertCorrupt "JPEG decoding failed" . decodeBlp $ jpegBlp 1 1 [badJpeg]
   , testCase "a JPEG decoder error in a tail mip ends the list" $ do
       let good = BSL.toStrict . encodeJpeg $ (convertImage (generateImage (\_ _ -> PixelRGB8 10 20 30) 2 2 :: Image PixelRGB8) :: Image PixelYCbCr8)
       levels <- decodeLevels (jpegBlp 2 2 [good, badJpeg])
       sizes levels @?= [(2, 2)]
   , testCase "broken mip 0 fails the file" $
-      assertLeft "" . decodeBlp $ setDword (sizeSlot 0) 12 jpegFile
+      assertCorrupt "JPEG" . decodeBlp $ setDword (sizeSlot 0) 12 jpegFile
   , testCase "three-component JPEG decodes to RGBA" $ do
       let rgb = generateImage (\x y -> PixelRGB8 (fromIntegral $ x * 16) (fromIntegral $ y * 16) 128) 16 16
           jpeg = BSL.toStrict . encodeJpeg $ (convertImage rgb :: Image PixelYCbCr8)
           bs = blpFile defHeader { hCompression = 0, hAlphaBits = 0, hWidth = 16, hHeight = 16, hExtra = 2 }
             [(fromIntegral headerSize + 4, fromIntegral $ BS.length jpeg)] ("\0\0\0\0" <> jpeg)
-      dyn <- either (assertFailure . ("decodeBlp: " ++)) return $ decodeBlp bs
-      case dyn of
-        ImageRGBA8 img -> do
-          direct <- either (assertFailure . ("decodeJpeg: " ++)) (return . convertRGBA8) $ decodeJpeg jpeg
-          pixelsOf img @?= pixelsOf direct
-        _ -> assertFailure "expected ImageRGBA8"
+      img <- decodeRGBA bs
+      direct <- either (assertFailure . ("decodeJpeg: " ++)) (return . convertRGBA8) $ decodeJpeg jpeg
+      pixelsOf img @?= pixelsOf direct
   , testCase "semi-transparent texture round-trips through the encoder (#17)" $ do
       img <- decodeRGBA . BSL.toStrict $ enc (BlpFormatJpeg 100) 1 (ImageRGBA8 gradient)
       let d = maxDiff gradient img
@@ -433,10 +425,10 @@ fileTests = testGroup "files"
           img = ImageRGBA8 opaqueGradient
           check write = bracket_ (write path) (removeFile path) $ do
             Right single <- readBlp path
-            let d = maxDiff opaqueGradient (convertRGBA8 single)
+            let d = maxDiff opaqueGradient single
             assertBool ("max channel difference " ++ show d) (d <= 8)
             Right levels <- readBlpMipmaps path
-            sizes (map convertRGBA8 levels) @?= [(16, 16), (8, 8)]
+            sizes levels @?= [(16, 16), (8, 8)]
       check $ \p -> writeOk p (BlpFormatJpeg 100) img
       check $ \p -> writeOk p (BlpFormatPaletted True) img
       check $ \p -> writeOk p (BlpFormatPaletted False) (ImageRGB8 $ convertRGB8 img)
@@ -493,12 +485,12 @@ inflated side = setDword 12 side . setDword 16 side . BSL.toStrict $
 limitTests :: TestTree
 limitTests = testGroup "limits and inspection"
   [ testCase "a small file claiming a huge size is rejected before allocating" $
-      assertLeft "above the limit" . decodeBlp $ inflated 16384
+      assertError (BlpTooLarge 16384 16384 (8192 * 8192)) . decodeBlp $ inflated 16384
   , testCase "blpMaxPixels is checked for JPEG and paletted content" $ do
       let limited n = decodeBlpWith (BlpDecodeOptions n)
-      assertLeft "above the limit" $ limited 255 jpegFile
+      assertError (BlpTooLarge 16 16 255) $ limited 255 jpegFile
       assertBool "16x16 JPEG fits 256 pixels" . either (const False) (const True) $ limited 256 jpegFile
-      assertLeft "above the limit" $ limited 15 (withAlphaFile 4)
+      assertError (BlpTooLarge 4 4 15) $ limited 15 (withAlphaFile 4)
       assertBool "4x4 paletted fits 16 pixels" . either (const False) (const True) $ limited 16 (withAlphaFile 4)
   , testCase "blpInfo reads the header" $ do
       blpInfo jpegFile @?= Right (BlpInfo Blp1 BlpCompressionJPEG 16 16 8 3)
@@ -507,8 +499,8 @@ limitTests = testGroup "limits and inspection"
   , testCase "blpInfo decodes no pixels" $
       fmap (\i -> (blpInfoWidth i, blpInfoHeight i)) (blpInfo (inflated 16384)) @?= Right (16384, 16384)
   , testCase "blpInfo rejects what decodeBlp rejects" $ do
-      assertLeft "BLP1" . blpInfo $ "BLP0" <> BS.drop 4 (withAlphaFile 4)
-      assertLeft "Invalid image size" . blpInfo $ setDword 12 0 (withAlphaFile 4)
+      assertError BlpNotBlp . blpInfo $ "BLP0" <> BS.drop 4 (withAlphaFile 4)
+      assertError (BlpInvalidSize 0 4) . blpInfo $ setDword 12 0 (withAlphaFile 4)
   ]
 
 -- | PSNR in dB between two equally sized images, on premultiplied RGBA so
@@ -579,4 +571,24 @@ qualityTests = testGroup "encoder quality and options"
   , testCase "JPEG from fully opaque RGBA has no alpha" $ do
       let bs = BSL.toStrict $ enc (BlpFormatJpeg 90) 1 (ImageRGBA8 smoothTexture)
       (getDword 8 bs, getDword extraOffset bs) @?= (0, 5)
+  ]
+
+errorTests :: TestTree
+errorTests = testGroup "errors"
+  [ testCase "a cut-off magic is a truncated header, other starts are not BLP" $ do
+      assertError BlpTruncatedHeader $ decodeBlp "BL"
+      assertError BlpNotBlp $ decodeBlp "PNG\r\n"
+      assertError BlpNotBlp $ blpInfo BS.empty
+  , testCase "a file without image data is an error for every decoder" $ do
+      let file = blpFile defHeader [] (paletteBytes $ palette 256)
+      assertError BlpNoImageData $ decodeBlpMipmaps file
+      fmap blpInfoMipLevels (blpInfo file) @?= Right 0
+  , testCase "errors have readable messages" $ do
+      displayBlpDecodeError (BlpTooLarge 16384 16384 100) @?= "Image size 16384x16384 is above the limit of 100 pixels"
+      displayBlpDecodeError (BlpUnsupported "BLP2 encoding 4") @?= "Unsupported BLP file: BLP2 encoding 4"
+      displayBlpDecodeError BlpNotBlp @?= "Not a BLP file: it starts with neither BLP1 nor BLP2"
+  , testCase "errors can be thrown and caught" $ do
+      r <- try (throwIO BlpNoImageData)
+      r @?= (Left BlpNoImageData :: Either BlpDecodeError ())
+      displayException BlpNoImageData @?= displayBlpDecodeError BlpNoImageData
   ]

@@ -6,6 +6,8 @@ from "Codec.Picture.Blp", and the ones the internal modules use from
 module Codec.Picture.Blp.Types(
     BlpDecodeOptions(..)
   , defaultBlpDecodeOptions
+  , BlpDecodeError(..)
+  , displayBlpDecodeError
   , BlpInfo(..)
   , BlpVersion(..)
   , BlpCompression(..)
@@ -15,6 +17,8 @@ module Codec.Picture.Blp.Types(
   , BlpEncodeError(..)
   ) where
 
+import Control.DeepSeq (NFData)
+import Control.Exception (Exception(..))
 import GHC.Generics
 
 -- | Options for decoding.
@@ -29,6 +33,46 @@ newtype BlpDecodeOptions = BlpDecodeOptions {
 defaultBlpDecodeOptions :: BlpDecodeOptions
 defaultBlpDecodeOptions = BlpDecodeOptions { blpMaxPixels = 8192 * 8192 }
 
+-- | Why a BLP file cannot be decoded. 'displayBlpDecodeError' gives a
+-- readable message.
+data BlpDecodeError =
+    -- | The file starts with neither @BLP1@ nor @BLP2@. BLP0 files are among
+    -- these.
+    BlpNotBlp
+    -- | The file ends inside its header.
+  | BlpTruncatedHeader
+    -- | The header asks for something this library does not read, such as
+    -- an unknown content type or BLP2 with JPEG content. The text says what.
+  | BlpUnsupported String
+    -- | Width or height outside 1 to 65535.
+  | BlpInvalidSize !Int !Int
+    -- | Width and height whose product is above 'blpMaxPixels', the limit
+    -- given last.
+  | BlpTooLarge !Int !Int !Int
+    -- | No mipmap slot points at usable data.
+  | BlpNoImageData
+    -- | The full size image cannot be decoded: its data is too short, its
+    -- JPEG stream is broken, and so on. The text says what. Damaged
+    -- mipmaps after the first are not errors; the list of levels stops
+    -- before them.
+  | BlpCorruptImage String
+  deriving (Eq, Show, Generic)
+
+instance Exception BlpDecodeError where
+  displayException = displayBlpDecodeError
+
+-- | A message for an error, in plain words.
+displayBlpDecodeError :: BlpDecodeError -> String
+displayBlpDecodeError e = case e of
+  BlpNotBlp -> "Not a BLP file: it starts with neither BLP1 nor BLP2"
+  BlpTruncatedHeader -> "The file ends inside its header"
+  BlpUnsupported what -> "Unsupported BLP file: " ++ what
+  BlpInvalidSize w h -> "Invalid image size " ++ show w ++ "x" ++ show h
+  BlpTooLarge w h limit -> "Image size " ++ show w ++ "x" ++ show h
+    ++ " is above the limit of " ++ show limit ++ " pixels"
+  BlpNoImageData -> "The file has no image data"
+  BlpCorruptImage what -> "The full size image is damaged: " ++ what
+
 -- | What a BLP file holds, read from its header without decoding any pixels.
 data BlpInfo = BlpInfo {
     blpInfoVersion :: !BlpVersion -- ^ BLP1 or BLP2
@@ -37,7 +81,7 @@ data BlpInfo = BlpInfo {
   , blpInfoHeight :: !Int -- ^ Height of the full size image
   , blpInfoAlphaBits :: !Int -- ^ The alpha depth header field (@alphaBits@ in BLP1, @alphaDepth@ in BLP2), as stored
   , blpInfoMipLevels :: !Int -- ^ Mip levels with usable slots, the full size image included
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Generic)
 
 -- | Version of a BLP file: BLP1 is used by Warcraft III, BLP2 by World of
 -- Warcraft.
@@ -97,4 +141,12 @@ data BlpEncodeError =
   | BlpInvalidJpegQuality !Int -- ^ JPEG quality outside 1 to 100.
   | BlpFileTooLarge -- ^ The file would exceed 4 GiB, the most its offsets can address.
   | BlpInvalidMaxSize !Int -- ^ A 'blpMaxSize' below 1.
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance Exception BlpEncodeError
+
+instance NFData BlpDecodeError
+instance NFData BlpEncodeError
+instance NFData BlpInfo
+instance NFData BlpVersion
+instance NFData BlpCompression

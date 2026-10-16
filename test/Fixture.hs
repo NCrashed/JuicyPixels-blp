@@ -24,9 +24,14 @@ module Fixture(
   , colourBlock
   , dxt3Alpha
   , dxt5Alpha
+  , assertError
+  , assertCorrupt
   ) where
 
+import Codec.Picture.Blp (BlpDecodeError(..))
 import Data.Bits
+import Data.List (isInfixOf)
+import Test.Tasty.HUnit
 import Data.ByteString (ByteString)
 import Data.Word
 
@@ -172,3 +177,17 @@ packBits bits = sum . zipWith (\i v -> toInteger v `shiftL` (bits * i)) [0 ..]
 
 le :: Integral a => Int -> a -> [Word8]
 le n v = [fromIntegral (toInteger v `shiftR` (8 * k)) | k <- [0 .. n - 1]]
+
+-- | Decoding must fail with exactly this error.
+assertError :: BlpDecodeError -> Either BlpDecodeError a -> Assertion
+assertError expected r = case r of
+  Left e -> e @?= expected
+  Right _ -> assertFailure $ "expected " ++ show expected
+
+-- | Decoding must fail with 'BlpCorruptImage' whose text mentions the needle.
+assertCorrupt :: String -> Either BlpDecodeError a -> Assertion
+assertCorrupt needle r = case r of
+  Left (BlpCorruptImage what) ->
+    assertBool (show what ++ " should mention " ++ show needle) (needle `isInfixOf` what)
+  Left e -> assertFailure $ "expected BlpCorruptImage, got " ++ show e
+  Right _ -> assertFailure "expected BlpCorruptImage"

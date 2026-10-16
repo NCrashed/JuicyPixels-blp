@@ -21,9 +21,9 @@ import Codec.Picture.Blp
 
 main :: IO ()
 main = do
-  -- Decode: the result is always ImageRGBA8.
+  -- Decode: the result is an Image PixelRGBA8, whatever the content.
   Right img <- readBlp "war3mapMap.blp"
-  writePng "war3mapMap.png" (convertRGBA8 img)
+  writePng "war3mapMap.png" img
 
   -- Encode: JPEG at quality 90 with every mip level down to 1x1.
   Right png <- readImage "icon.png"
@@ -31,9 +31,14 @@ main = do
   either print return result
 ```
 
-- `readBlp` / `decodeBlp` return the full size image of a BLP1 or BLP2 file.
+- `readBlp` / `decodeBlp` return the full size image of a BLP1 or BLP2 file
+  as `Image PixelRGBA8`.
 - `readBlpMipmaps` / `decodeBlpMipmaps` return the image followed by its
   mipmaps.
+- Files they cannot read give a `BlpDecodeError`, which says why: not a BLP
+  file, a header cut short, unsupported content, an invalid size, a size
+  above the limit, no image data, or a damaged full size image.
+  `displayBlpDecodeError` turns it into a message.
 - `encodeBlpWith` / `writeBlpWith` encode with `BlpEncodeOptions`:
   - `blpFormat`: `BlpFormatJpeg quality` (1 to 100; the texture gets alpha
     when the image has it) or `BlpFormatPaletted withAlpha` (256 colour
@@ -74,12 +79,12 @@ change between minor versions.
   - truncated or corrupt mipmaps. These cost only the levels from the damaged
     one onwards; a damaged full size image still fails the file.
 
-  The decoder reports malformed input as `Left`, including errors raised
-  inside JuicyPixels' JPEG decoder. Memory use follows the size in the file
-  header, so decoding refuses images above 8192×8192 by default; check
-  untrusted files with `blpInfo` and set your own limit with
-  `decodeBlpWith (BlpDecodeOptions n)`. One known exception: some corrupt JPEG
-  streams make JuicyPixels loop forever
+  The decoder reports malformed input as a `BlpDecodeError`, including
+  errors raised inside JuicyPixels' JPEG decoder. Memory use follows the
+  size in the file header, so decoding refuses images above 8192×8192 by
+  default; check untrusted files with `blpInfo` and set your own limit with
+  `decodeBlpWith (BlpDecodeOptions n)`. One known exception: some corrupt
+  JPEG streams make JuicyPixels loop forever
   ([Juicy.Pixels#230](https://github.com/haskell-github-trust/Juicy.Pixels/issues/230)),
   so decoding untrusted files needs a timeout.
 - **Encoding** to JPEG or a 256 colour palette, with or without alpha. The

@@ -88,7 +88,7 @@ decodingNeverThrows :: Property
 decodingNeverThrows = forAllShow damagedFile showCase $ \(seed, ds) -> monadicIO $ do
   let file = foldl damage seed ds
   result <- run . timeout 1000000 . trySync . evaluate . force $
-    fmap (map (imageData . convertRGBA8)) (decodeBlpMipmaps file)
+    fmap (map imageData) (decodeBlpMipmaps file)
   case result of
     Nothing -> monitor (label "JuicyPixels hang (Juicy.Pixels#230)")
     Just (Left e) -> do
@@ -121,7 +121,7 @@ levelSizes :: Property
 levelSizes = forAll ((,,) <$> choose (1, 40) <*> choose (1, 40) <*> format) $ \(w, h, f) ->
   let expected = take 16 (chain w h)
       decoded = decodeBlpMipmaps (encode f 16 (texture w h))
-  in either (const []) (map (\i -> (dynamicMap imageWidth i, dynamicMap imageHeight i))) decoded === expected
+  in either (const []) (map (\i -> (imageWidth i, imageHeight i))) decoded === expected
   where
     format = elements [BlpFormatJpeg 90, BlpFormatPaletted True, BlpFormatPaletted False]
     chain w h = go 0
@@ -135,7 +135,7 @@ fewColoursExact :: Property
 fewColoursExact = forAll gen $ \(w, h, colours, picks) ->
   let img = generateImage (\x y -> colours !! (picks !! (y * w + x))) w h
       decoded = decodeBlp (encode (BlpFormatPaletted False) 1 (ImageRGBA8 img))
-  in fmap (imageData . convertRGBA8) decoded === Right (imageData img)
+  in fmap imageData decoded === Right (imageData img)
   where
     gen = do
       w <- choose (1, 24)

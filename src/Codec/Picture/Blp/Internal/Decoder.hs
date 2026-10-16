@@ -33,22 +33,22 @@ import Codec.Picture.Blp.Internal.Dxt
 import Codec.Picture.Blp.Internal.Parser
 import Codec.Picture.Blp.Types
 
--- | Decode the full size image of a parsed file followed by its mipmaps, all
--- 'ImageRGBA8'. See 'Codec.Picture.Blp.decodeBlpMipmapsWith'.
-decodeBlpStruct :: BlpDecodeOptions -> BlpStruct -> Either String [DynamicImage]
+-- | Decode the full size image of a parsed file followed by its mipmaps.
+-- See 'Codec.Picture.Blp.decodeBlpMipmapsWith'.
+decodeBlpStruct :: BlpDecodeOptions -> BlpStruct -> Either BlpDecodeError [Image PixelRGBA8]
 decodeBlpStruct opts blp = do
   let width = fromIntegral $ blpWidth blp
       height = fromIntegral $ blpHeight blp
   checkSize opts width height
   case blpExt blp of
     BlpJpeg {..} -> case blpJpegData of
-      [] -> Left "No JPEG mipmap data in BLP"
+      [] -> Left BlpNoImageData
       level0 : rest -> do
         -- Mipmap 0 is the full-resolution image; a failure there fails the
         -- file. Tail mipmaps are decoded lazily and the chain stops at the
         -- first one that fails, so a corrupt tail costs only the levels from
         -- it on, and element i stays level i.
-        mip0 <- decodeLevel 0 level0
+        mip0 <- either (Left . BlpCorruptImage) Right (decodeLevel 0 level0)
         let validPrefix l (j : js) | Right m <- decodeLevel l j = m : validPrefix (l + 1) js
             validPrefix _ _ = []
             -- The alpha decision is taken once, from the full size mipmap, so that
@@ -69,11 +69,11 @@ decodeBlpStruct opts blp = do
         if fw > lw || fh > lh
           then Left $ "JPEG mipmap " ++ show l ++ " is " ++ show fw ++ "x" ++ show fh
             ++ ", larger than its level size " ++ show lw ++ "x" ++ show lh
-          else safeDecodeJpeg jpeg
+          else either (Left . (("JPEG mipmap " ++ show l ++ ": ") ++)) Right (safeDecodeJpeg jpeg)
       toLevel useAlpha (l, img) = let
         (lw, lh) = levelSize width height l
         rgba = convertRGBA8 (fromBlpJpeg useAlpha img)
-        in ImageRGBA8 $ if imageWidth rgba == lw && imageHeight rgba == lh
+        in if imageWidth rgba == lw && imageHeight rgba == lh
           then rgba
           else generateImage (\x y -> if x < imageWidth rgba && y < imageHeight rgba
             then pixelAt rgba x y else PixelRGBA8 0 0 0 0) lw lh
@@ -81,10 +81,10 @@ decodeBlpStruct opts blp = do
     BlpPaletted {..} -> palettedImages width height (fromIntegral (blpAlphaBits blp)) blpPalette blpPalettedMipMaps
 
 -- | Decode the full size image of a parsed BLP2 file followed by its
--- mipmaps, all 'ImageRGBA8'. Levels are taken as in BLP1: a damaged level 0
+-- mipmaps. Levels are taken as in BLP1: a damaged level 0
 -- fails the file, and the list stops at the first damaged mipmap. An alpha
 -- depth of 0 makes every level opaque.
-decodeBlp2Struct :: BlpDecodeOptions -> Blp2Struct -> Either String [DynamicImage]
+decodeBlp2Struct :: BlpDecodeOptions -> Blp2Struct -> Either BlpDecodeError [Image PixelRGBA8]
 decodeBlp2Struct opts blp = do
   checkSize opts width height
   case blp2Content blp of
@@ -96,10 +96,10 @@ decodeBlp2Struct opts blp = do
     height = fromIntegral $ blp2Height blp
     finish = if blp2AlphaDepth blp == 0 then setOpaque else id
     levels decode = case blp2MipMaps blp of
-      [] -> Left "No mipmap data in BLP2"
+      [] -> Left BlpNoImageData
       mips -> case [decode (levelSize width height l) mip | (l, mip) <- zip [0 ..] mips] of
-        Left e : _ -> Left $ "Mipmap 0: " ++ e
-        decoded -> Right [ImageRGBA8 (finish img) | Right img <- takeWhile isRight decoded]
+        Left e : _ -> Left (BlpCorruptImage e)
+        decoded -> Right [finish img | Right img <- takeWhile isRight decoded]
 
 -- | A level of four bytes per pixel, B, G, R and A.
 bgraLevel :: (Int, Int) -> ByteString -> Either String (Image PixelRGBA8)
@@ -115,15 +115,14 @@ setOpaque :: Image PixelRGBA8 -> Image PixelRGBA8
 setOpaque = pixelMap (\(PixelRGBA8 r g b _) -> PixelRGBA8 r g b 255)
 
 -- | Reject an image above the size limit before anything is allocated.
-checkSize :: BlpDecodeOptions -> Int -> Int -> Either String ()
+checkSize :: BlpDecodeOptions -> Int -> Int -> Either BlpDecodeError ()
 checkSize opts width height = when (width * height > blpMaxPixels opts) . Left $
-  "Image size " ++ show width ++ "x" ++ show height ++ " is above the limit of "
-  ++ show (blpMaxPixels opts) ++ " pixels"
+  BlpTooLarge width height (blpMaxPixels opts)
 
 -- | Paletted levels with the declared alpha depth, if it is valid for
 -- paletted content. A mip 0 too short to hold that much alpha has none:
 -- some tools declare alpha and then write only the index list.
-palettedImages :: Int -> Int -> Int -> V.Vector PixelRGBA8 -> [ByteString] -> Either String [DynamicImage]
+palettedImages :: Int -> Int -> Int -> V.Vector PixelRGBA8 -> [ByteString] -> Either BlpDecodeError [Image PixelRGBA8]
 palettedImages width height declaredBits palette mips = palettedLevels width height alphaBits palette mips
   where
     declared = if declaredBits `elem` [1, 4, 8] then declaredBits else 0
@@ -132,7 +131,7 @@ palettedImages width height declaredBits palette mips = palettedLevels width hei
       _ -> declared
 
 -- | Decode a parsed BLP1 or BLP2 file.
-decodeBlpFile :: BlpDecodeOptions -> BlpFile -> Either String [DynamicImage]
+decodeBlpFile :: BlpDecodeOptions -> BlpFile -> Either BlpDecodeError [Image PixelRGBA8]
 decodeBlpFile opts (BlpFile1 blp) = decodeBlpStruct opts blp
 decodeBlpFile opts (BlpFile2 blp) = decodeBlp2Struct opts blp
 
@@ -180,16 +179,16 @@ levelBytes n alphaBits = n + (n * alphaBits + 7) `div` 8
 -- @w / 2^l@ by @h / 2^l@, but never smaller than 1x1. The list stops at the
 -- first level whose data is too short for its size, so the result is always a
 -- prefix of the mip levels; a short level 0 fails the file.
-palettedLevels :: Int -> Int -> Int -> V.Vector PixelRGBA8 -> [ByteString] -> Either String [DynamicImage]
+palettedLevels :: Int -> Int -> Int -> V.Vector PixelRGBA8 -> [ByteString] -> Either BlpDecodeError [Image PixelRGBA8]
 palettedLevels width height alphaBits palette mips
-  | null mips = Right []
+  | null mips = Left BlpNoImageData
   | otherwise = case go 0 mips of
-      [] -> Left "Mipmap 0 is too short for the image size"
+      [] -> Left (BlpCorruptImage "mip 0 is too short for the image size")
       levels -> Right levels
   where
     go l (mip : rest)
       | BS.length mip >= levelBytes (w * h) alphaBits =
-          ImageRGBA8 (generateImage (pixel w (BS.drop (w * h) mip) mip) w h) : go (l + 1) rest
+          generateImage (pixel w (BS.drop (w * h) mip) mip) w h : go (l + 1) rest
       where
         (w, h) = levelSize width height l
     go _ _ = []

@@ -9,12 +9,13 @@ BLP2 adds DXT1, DXT3 and DXT5 block compression and plain BGRA pixels. A
 file holds the full size image followed by its mipmaps, each half the size
 of the previous one.
 
-Decoding always yields 'ImageRGBA8'. Files from the wild are often slightly
-off spec; the decoder accepts the common deviations and, when a mipmap is
-damaged, keeps the levels before it.
+Decoding yields t'Image' t'PixelRGBA8' whatever the content, and reports
+files it cannot read as a 'BlpDecodeError'. Files from the wild are often
+slightly off spec; the decoder accepts the common deviations and, when a
+mipmap is damaged, keeps the levels before it.
 
 > Right img <- readBlp "war3mapMap.blp"
-> writePng "war3mapMap.png" (convertRGBA8 img)
+> writePng "war3mapMap.png" img
 >
 > Right png <- readImage "icon.png"
 > result <- writeBlpWith "icon.blp" defaultBlpEncodeOptions png
@@ -32,6 +33,8 @@ module Codec.Picture.Blp(
   , decodeBlpMipmapsWith
   , BlpDecodeOptions(..)
   , defaultBlpDecodeOptions
+  , BlpDecodeError(..)
+  , displayBlpDecodeError
   -- * Inspecting
   , blpInfo
   , BlpInfo(..)
@@ -70,44 +73,43 @@ import Codec.Picture.Blp.Types
 
 -- | Read a BLP file and decode its full size image. IO errors, such as a
 -- missing file, are thrown; malformed contents give 'Left'.
-readBlp :: FilePath -> IO (Either String DynamicImage)
+readBlp :: FilePath -> IO (Either BlpDecodeError (Image PixelRGBA8))
 readBlp fp = decodeBlp `fmap` BS.readFile fp
 
 -- | Read a BLP file and decode the full size image followed by its mipmaps.
 -- See 'decodeBlpMipmaps'.
-readBlpMipmaps :: FilePath -> IO (Either String [DynamicImage])
+readBlpMipmaps :: FilePath -> IO (Either BlpDecodeError [Image PixelRGBA8])
 readBlpMipmaps fp = decodeBlpMipmaps `fmap` BS.readFile fp
 
 -- | Decode the full size image of a BLP file with 'defaultBlpDecodeOptions'.
--- The result is 'ImageRGBA8'.
-decodeBlp :: ByteString -> Either String DynamicImage
+decodeBlp :: ByteString -> Either BlpDecodeError (Image PixelRGBA8)
 decodeBlp = decodeBlpWith defaultBlpDecodeOptions
 
--- | Decode the full size image of a BLP file. The result is 'ImageRGBA8'.
-decodeBlpWith :: BlpDecodeOptions -> ByteString -> Either String DynamicImage
+-- | Decode the full size image of a BLP file.
+decodeBlpWith :: BlpDecodeOptions -> ByteString -> Either BlpDecodeError (Image PixelRGBA8)
 decodeBlpWith opts bs = do
   is <- decodeBlpMipmapsWith opts bs
   case is of
     i : _ -> Right i
-    [] -> Left "No data in BLP"
+    [] -> Left BlpNoImageData
 
 -- | Decode the full size image followed by its mipmaps with
 -- 'defaultBlpDecodeOptions'. See 'decodeBlpMipmapsWith'.
-decodeBlpMipmaps :: ByteString -> Either String [DynamicImage]
+decodeBlpMipmaps :: ByteString -> Either BlpDecodeError [Image PixelRGBA8]
 decodeBlpMipmaps = decodeBlpMipmapsWith defaultBlpDecodeOptions
 
--- | Decode the full size image followed by its mipmaps, all 'ImageRGBA8'.
+-- | Decode the full size image followed by its mipmaps.
 --
 -- Element @i@ is always mip level @i@. Mipmaps are decoded lazily, and the
 -- list stops at the first one that is damaged, so a broken mipmap never
 -- costs the levels before it. A damaged full size image fails the file.
-decodeBlpMipmapsWith :: BlpDecodeOptions -> ByteString -> Either String [DynamicImage]
+decodeBlpMipmapsWith :: BlpDecodeOptions -> ByteString -> Either BlpDecodeError [Image PixelRGBA8]
 decodeBlpMipmapsWith opts bs = parseBlpFile bs >>= decodeBlpFile opts
 
 -- | Read the header of a BLP file. This checks what 'decodeBlp' checks before
 -- decoding (format, size, mipmap slots) but decodes no pixels, so it is cheap
 -- on any input. Use it to reject textures that are too large.
-blpInfo :: ByteString -> Either String BlpInfo
+blpInfo :: ByteString -> Either BlpDecodeError BlpInfo
 blpInfo bs = blpFileInfo <$> parseBlpFile bs
 
 -- | Number of mip levels, mip 0 included, whose larger side is at least the

@@ -5,7 +5,7 @@ module Statistics(
   ) where
 
 import Codec.Picture.Blp.Internal.Data
-import Codec.Picture.Blp (BlpVersion(..))
+import Codec.Picture.Blp (BlpVersion(..), displayBlpDecodeError)
 import Codec.Picture.Blp.Internal.Parser
 import Control.Monad
 import Data.Char (toLower)
@@ -38,7 +38,7 @@ collectSamples dir = do
 collectSample :: StatMap -> FilePath -> IO StatMap
 collectSample stats inputFile = do
   putStrLn $ "Sampling " ++ inputFile
-  result <- tryAll (parseBlpFile <$> BS.readFile inputFile)
+  result <- tryAll (either (Left . displayBlpDecodeError) Right . parseBlpFile <$> BS.readFile inputFile)
   case join result of
     Left err -> do
       -- One unreadable file should not lose the statistics of the rest.

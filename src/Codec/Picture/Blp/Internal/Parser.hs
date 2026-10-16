@@ -1,7 +1,8 @@
 {-|
 Parser for BLP1 files. It reads the header with attoparsec and takes the
 content (JPEG header, palette, mip levels) straight from the slots the header
-points at; turning the content into images is done in "Codec.Picture.Blp".
+points at; turning the content into images is done in
+"Codec.Picture.Blp.Internal.Decoder".
 
 This is an internal module: its API may change between minor versions.
 -}

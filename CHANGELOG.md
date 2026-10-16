@@ -8,6 +8,9 @@ Unreleased
   outside the internal modules, so later changes to the internal file
   structure cannot change them. `Codec.Picture.Blp.Internal.Data` still
   re-exports the ones it exported before; no code needs changing.
+- New internal module `Codec.Picture.Blp.Internal.Decoder` with the code
+  that turns a parsed file into images (`decodeBlpStruct` and
+  `blpStructInfo`), for tools that parse files themselves.
 
 0.5.0.0 (2026-10-16)
 ====================

@@ -54,9 +54,9 @@ main = do
   `encodeBlpUncompressedWithoutAlpha` and their `write` variants are
   deprecated wrappers around `encodeBlpWith`.
 
-The `Codec.Picture.Blp.Internal.*` modules expose the parser, encoder and
-file structure. They are useful for tools, but their API may change between
-minor versions.
+The `Codec.Picture.Blp.Internal.*` modules expose the parser, decoder,
+encoder and file structure. They are useful for tools, but their API may
+change between minor versions.
 
 ## What works
 

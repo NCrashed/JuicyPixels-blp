@@ -1,7 +1,7 @@
 {-|
 Decoding and encoding of BLP, the texture format of Warcraft III (BLP1) and
-World of Warcraft (BLP2), on top of JuicyPixels. BLP1 is read and written,
-BLP2 is read.
+World of Warcraft (BLP2), on top of JuicyPixels. Both versions are read and
+written.
 
 BLP1 comes in two flavours: JPEG compressed and uncompressed with a 256
 colour palette. Uncompressed textures either carry an alpha plane or not.
@@ -112,20 +112,34 @@ mipMapsUpTo :: Int -- ^ Smallest side length to keep (2, 4, 16, ...)
   -> Int
 mipMapsUpTo minSize img = max 1 $ mipLevelsDownTo minSize (dynamicMap imageWidth img) (dynamicMap imageHeight img)
 
--- | Encode an image as a BLP1 file.
+-- | Encode an image as a BLP1 or BLP2 file, as 'blpVersion' says.
 encodeBlpWith :: BlpEncodeOptions -> DynamicImage -> Either BlpEncodeError BSL.ByteString
 encodeBlpWith opts@BlpEncodeOptions{..} img
   | dynamicMap imageWidth img < 1 || dynamicMap imageHeight img < 1 = Left BlpEmptyImage
+  | not (formatInVersion blpVersion blpFormat) = Left $ BlpUnsupportedFormat blpVersion blpFormat
   | Just limit <- blpMaxSize, limit < 1 = Left $ BlpInvalidMaxSize limit
   | w > 65535 || h > 65535 = Left $ BlpImageTooLarge w h
   | BlpFormatJpeg quality <- blpFormat, quality < 1 || quality > 100 = Left $ BlpInvalidJpegQuality quality
-  | BSL.length file > 0xFFFFFFFF = Left BlpFileTooLarge
-  | otherwise = Right file
+  | otherwise = do
+      file <- case blpVersion of
+        Blp1 -> encodeBlp <$> toBlpStruct opts source
+        Blp2 -> encodeBlp2 <$> toBlp2Struct opts source
+      if BSL.length file > 0xFFFFFFFF then Left BlpFileTooLarge else Right file
   where
     source = maybe img (`shrinkTo` img) blpMaxSize
     w = dynamicMap imageWidth source
     h = dynamicMap imageHeight source
-    file = encodeBlp (toBlpStruct opts source)
+
+-- | Whether a version of the format can hold the content type.
+formatInVersion :: BlpVersion -> BlpFormat -> Bool
+formatInVersion version format = case (version, format) of
+  (_, BlpFormatPaletted _) -> True
+  (Blp1, BlpFormatJpeg _) -> True
+  (Blp2, BlpFormatDxt1) -> True
+  (Blp2, BlpFormatDxt3) -> True
+  (Blp2, BlpFormatDxt5) -> True
+  (Blp2, BlpFormatBgra) -> True
+  _ -> False
 
 -- | Encode an image with 'encodeBlpWith' and write it to a file.
 writeBlpWith :: FilePath -> BlpEncodeOptions -> DynamicImage -> IO (Either BlpEncodeError ())

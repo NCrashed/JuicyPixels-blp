@@ -3,7 +3,7 @@ name:                JuicyPixels-blp
 version:             0.6.0.0
 synopsis:            BLP format decoder/encoder over JuicyPixels library
 description:
-  Read and write BLP1, the texture format of Warcraft III, and read BLP2,
+  Read and write BLP1, the texture format of Warcraft III, and BLP2,
   its World of Warcraft variant, with images as
   [JuicyPixels](https://hackage.haskell.org/package/JuicyPixels) types.
   Supports JPEG, paletted, DXT1/3/5 and BGRA content with and without
@@ -135,6 +135,7 @@ test-suite spec
     , QuickCheck            >= 2.14   && < 2.17
     , tasty-hunit           >= 0.10   && < 0.11
     , tasty-quickcheck      >= 0.10.2 && < 0.12
+    , vector
 
   default-extensions:
     OverloadedStrings

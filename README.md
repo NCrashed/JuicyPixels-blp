@@ -4,7 +4,7 @@ JuicyPixels-blp
 [![CI](https://github.com/NCrashed/JuicyPixels-blp/actions/workflows/ci.yml/badge.svg)](https://github.com/NCrashed/JuicyPixels-blp/actions/workflows/ci.yml)
 [![Hackage](https://img.shields.io/hackage/v/JuicyPixels-blp.svg)](https://hackage.haskell.org/package/JuicyPixels-blp)
 
-Read and write BLP1, the texture format of Warcraft III, and read BLP2, its
+Read and write BLP1, the texture format of Warcraft III, and BLP2, its
 World of Warcraft variant, with images as
 [JuicyPixels](https://hackage.haskell.org/package/JuicyPixels) types. The
 package also ships `blp2any`, a command-line converter between BLP and
@@ -40,9 +40,13 @@ main = do
   above the limit, no image data, or a damaged full size image.
   `displayBlpDecodeError` turns it into a message.
 - `encodeBlpWith` / `writeBlpWith` encode with `BlpEncodeOptions`:
-  - `blpFormat`: `BlpFormatJpeg quality` (1 to 100; the texture gets alpha
-    when the image has it) or `BlpFormatPaletted withAlpha` (256 colour
-    palette, with 8-bit alpha or none).
+  - `blpVersion`: `Blp1` (Warcraft III, the default) or `Blp2` (World of
+    Warcraft).
+  - `blpFormat`: in BLP1, `BlpFormatJpeg quality` (1 to 100; the texture
+    gets alpha when the image has it); in BLP2, `BlpFormatDxt1` (1-bit
+    alpha when some alpha is below 128), `BlpFormatDxt3`, `BlpFormatDxt5`
+    or `BlpFormatBgra` (lossless); in both, `BlpFormatPaletted withAlpha`
+    (256 colour palette, with 8-bit alpha or none).
   - `blpMipLevels`: how many mip levels to write, clamped to 1 and the full
     chain. `mipMapsUpTo` computes it from a smallest side length.
   - `blpDither`: whether paletted textures are dithered (on by default;
@@ -55,7 +59,8 @@ main = do
 
   They return `Left` for images they cannot encode (`BlpEncodeError`): an
   empty image, a side above 65535 (after `blpMaxSize`), an invalid JPEG
-  quality or size limit, or a file over 4 GiB.
+  quality or size limit, a format the version does not have (such as
+  JPEG in BLP2), or a file over 4 GiB.
 
 The `Codec.Picture.Blp.Internal.*` modules expose the parser, decoder,
 encoder and file structure. They are useful for tools, but their API may
@@ -84,8 +89,12 @@ change between minor versions.
   JPEG streams make JuicyPixels loop forever
   ([Juicy.Pixels#230](https://github.com/haskell-github-trust/Juicy.Pixels/issues/230)),
   so decoding untrusted files needs a timeout.
-- **Encoding** to JPEG or a 256 colour palette, with or without alpha. The
-  JPEG header is shared between mipmaps, as in Blizzard's own files.
+- **Encoding** BLP1 to JPEG or a 256 colour palette, with or without alpha.
+  The JPEG header is shared between mipmaps, as in Blizzard's own files.
+- **Encoding BLP2** to DXT1, DXT3, DXT5, BGRA or a palette. The DXT encoder
+  fits each block along its principal axis and refines it by least squares;
+  on test images it is 0.2–0.6 dB below libsquish's cluster fit (1.8 dB on a
+  small icon) and 0.7–2.5 dB above a plain range fit.
 
 ## Limitations
 
@@ -97,11 +106,9 @@ change between minor versions.
 
 ## Out of scope
 
-The library reads every BLP version in use and writes the one Warcraft III
-needs. These are left out on purpose, not for lack of time:
+The library reads and writes every BLP version in use, BLP1 and BLP2.
+These are left out on purpose, not for lack of time:
 
-- **Writing BLP2.** It needs a DXT encoder, and World of Warcraft modding
-  already has tools for it.
 - **BLP0**, which keeps mipmaps in separate `.b00`–`.b15` files and appeared
   only in the Reign of Chaos beta.
 - **BLP2 with JPEG content** (`type` 0): no known file uses it, so it is
@@ -123,7 +130,8 @@ has. To build it yourself instead, use `cabal install JuicyPixels-blp`
 
 ```
 blp2any convert INPUT_PATH OUTPUT_PATH [-i FORMAT] [-f FORMAT] [-q QUALITY]
-                [-b jpg|uncompressedWithAlpha|uncompressedWithoutAlpha]
+                [-b jpg|uncompressedWithAlpha|uncompressedWithoutAlpha|dxt1|dxt3|dxt5|bgra]
+                [--blp2]
                 [--min-mipmap-size N] [--max-size PIXELS] [--no-dither]
                 [-s|--shallow] [-p|--flatten] [--timeout SECONDS]
 blp2any stats DIRECTORY OUTPUT_PATH
@@ -141,7 +149,9 @@ blp2any stats DIRECTORY OUTPUT_PATH
     untrusted input, where some corrupt JPEG data makes decoding hang. The
     output never overwrites its input.
   - When writing BLP:
-    - `-b` picks the internal format, JPEG by default.
+    - `-b` picks the internal format, JPEG by default. `dxt1`, `dxt3`,
+      `dxt5` and `bgra` write BLP2; the others write BLP1 unless `--blp2`
+      is given, which writes a paletted BLP2.
     - `--max-size PIXELS` halves the image until its larger side fits;
       Warcraft III shows mip levels up to 512 pixels only.
     - `--no-dither` turns off dithering for paletted output, which suits

@@ -33,6 +33,7 @@ main = defaultMain $ testGroup "JuicyPixels-blp"
   , fileTests
   , dxtTests
   , blp2Tests
+  , blp2EncodeTests
   , propertyTests
   ]
 

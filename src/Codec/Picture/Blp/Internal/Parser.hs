@@ -11,7 +11,7 @@ module Codec.Picture.Blp.Internal.Parser(
   , parseBlp2
   , parseBlpFile
   , readPalette
-  , blpVersion
+  , blp1Tag
   , dword
   , compressionParser
   , maxSide
@@ -173,7 +173,7 @@ blp2HeaderParser = do
 -- plus the fields needed to read the content.
 headerParser :: Parser (BlpExt -> BlpStruct, Word32, Word32, Word32, [(Word32, Word32)])
 headerParser = do
-  _ <- blpVersion
+  _ <- blp1Tag
   content <- dword <?> "content"
   blpAlphaBits <- dword <?> "alpha bits"
   blpWidth <- dword <?> "width"
@@ -186,8 +186,8 @@ headerParser = do
   return (mkStruct, content, blpWidth, blpHeight, offsets `zip` sizes)
 
 -- | The @BLP1@ magic. BLP0 and BLP2 files fail here.
-blpVersion :: Parser ByteString
-blpVersion = string "BLP1" <?> "BLP1 version tag"
+blp1Tag :: Parser ByteString
+blp1Tag = string "BLP1" <?> "BLP1 version tag"
 
 -- | A little-endian 32-bit word.
 dword :: Parser Word32

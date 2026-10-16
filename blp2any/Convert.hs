@@ -31,6 +31,10 @@ data BlpKind =
     BlpJpeg
   | BlpUncompressedWithAlpha
   | BlpUncompressedWithoutAlpha
+  | BlpDxt1
+  | BlpDxt3
+  | BlpDxt5
+  | BlpBgra
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 readBlpKind :: String -> Maybe BlpKind
@@ -41,6 +45,10 @@ readBlpKind s = case toLower <$> s of
   "uncompressedwithalpha" -> Just BlpUncompressedWithAlpha
   "uncompressed2" -> Just BlpUncompressedWithoutAlpha
   "uncompressedwithoutalpha" -> Just BlpUncompressedWithoutAlpha
+  "dxt1" -> Just BlpDxt1
+  "dxt3" -> Just BlpDxt3
+  "dxt5" -> Just BlpDxt5
+  "bgra" -> Just BlpBgra
   _ -> Nothing
 
 data ConvertFormat =
@@ -99,6 +107,7 @@ data ConvertOptions = ConvertOptions {
 , convertTimeout        :: Maybe Int
 , convertDither         :: Bool
 , convertMaxSize        :: Maybe Int
+, convertBlp2           :: Bool
 }
 
 convertFiles :: ConvertOptions -> IO ()
@@ -166,7 +175,7 @@ convertFile ConvertOptions{..} isDir inputFile = runExceptT $ do
 
   let mipsCount = mipMapsUpTo convertBlpMinMipSize img
   let encodeOptions = defaultBlpEncodeOptions { blpMipLevels = mipsCount, blpDither = convertDither, blpMaxSize = convertMaxSize }
-  ExceptT $ convertionFunction distFormat convertQuality convertBlpKind encodeOptions outputFile img
+  ExceptT $ convertionFunction distFormat convertQuality convertBlpKind convertBlp2 encodeOptions outputFile img
   pure $ inputFile <> ": Success"
 
 -- | A readable message for an encoding error.
@@ -177,6 +186,15 @@ describeEncodeError e = case e of
   BlpInvalidJpegQuality q -> "JPEG quality must be 1 to 100, got " <> show q
   BlpFileTooLarge -> "the BLP file would be larger than 4 GiB"
   BlpInvalidMaxSize n -> "--max-size must be at least 1, got " <> show n
+  BlpUnsupportedFormat v f -> formatName f <> " cannot be written as " <> (if v == Blp1 then "BLP1" else "BLP2")
+  where
+    formatName f = case f of
+      BlpFormatJpeg _ -> "JPEG"
+      BlpFormatPaletted _ -> "a palette"
+      BlpFormatDxt1 -> "DXT1"
+      BlpFormatDxt3 -> "DXT3"
+      BlpFormatDxt5 -> "DXT5"
+      BlpFormatBgra -> "BGRA"
 
 -- | Run a conversion, giving up after the given number of seconds.
 withTimeout :: Maybe Int -> IO (Either String a) -> IO (Either String a)
@@ -184,14 +202,20 @@ withTimeout Nothing action = action
 withTimeout (Just seconds) action =
   fromMaybe (Left $ "gave up after " <> show seconds <> " s") <$> timeout (seconds * 1000000) action
 
-convertionFunction :: ConvertFormat -> Int -> BlpKind -> BlpEncodeOptions -> FilePath -> DynamicImage -> IO (Either String ())
-convertionFunction f quality blpKind encodeOptions path img = case f of
+convertionFunction :: ConvertFormat -> Int -> BlpKind -> Bool -> BlpEncodeOptions -> FilePath -> DynamicImage -> IO (Either String ())
+convertionFunction f quality blpKind blp2 encodeOptions path img = case f of
   Blp -> do
     let format = case blpKind of
           BlpJpeg -> BlpFormatJpeg quality
           BlpUncompressedWithAlpha -> BlpFormatPaletted True
           BlpUncompressedWithoutAlpha -> BlpFormatPaletted False
-    res <- writeBlpWith path encodeOptions { blpFormat = format } img
+          BlpDxt1 -> BlpFormatDxt1
+          BlpDxt3 -> BlpFormatDxt3
+          BlpDxt5 -> BlpFormatDxt5
+          BlpBgra -> BlpFormatBgra
+        -- DXT and BGRA exist only in BLP2; a palette goes either way.
+        version = if blp2 || blpKind `elem` [BlpDxt1, BlpDxt3, BlpDxt5, BlpBgra] then Blp2 else Blp1
+    res <- writeBlpWith path encodeOptions { blpFormat = format, blpVersion = version } img
     pure $ either (Left . describeEncodeError) Right res
   Png -> do
     res <- writeDynamicPng path img

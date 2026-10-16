@@ -114,9 +114,7 @@ blpInfo bs = blpStructInfo <$> parseBlp bs
 mipMapsUpTo :: Int -- ^ Smallest side length to keep (2, 4, 16, ...)
   -> DynamicImage -- ^ Image the mipmaps are made for
   -> Int
-mipMapsUpTo minSize img = max 1 . min 16 . length . takeWhile (>= max 1 minSize) $ iterate (`div` 2) larger
-  where
-    larger = max (dynamicMap imageWidth img) (dynamicMap imageHeight img)
+mipMapsUpTo minSize img = max 1 $ mipLevelsDownTo minSize (dynamicMap imageWidth img) (dynamicMap imageHeight img)
 
 -- | Encode an image as a BLP1 file.
 encodeBlpWith :: BlpEncodeOptions -> DynamicImage -> Either BlpEncodeError BSL.ByteString

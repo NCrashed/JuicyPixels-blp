@@ -1,3 +1,10 @@
+Unreleased
+==========
+
+- The benchmarks accept `tasty-bench` 0.5. This only matters when building
+  them; the library and `blp2any` are unchanged. 0.5.0.0 has the same
+  bound in a Hackage revision.
+
 0.5.0.0 (2026-10-16)
 ====================
 
